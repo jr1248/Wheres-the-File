@@ -9,6 +9,8 @@
 
 #include<pthread.h> // threading
 
+#define PORT 8080
+
 void *connection_handler(void *);
 
 // Handles the connection for each client
@@ -57,7 +59,7 @@ int main(int argc, char* argv[]) {
   // define the server address
   server.sin_family = AF_INET;
   server.sin_addr.s_addr = INADDR_ANY;
-  server.sin_port = htons(8080);
+  server.sin_port = htons( PORT );
 
   //Bind socket to our specified IP and sin_port
   if( bind(server_socket, (struct sockaddr *)&server , sizeof(server)) < 0) {
@@ -70,7 +72,7 @@ int main(int argc, char* argv[]) {
   listen(server_socket, 3);
 
   //Accept and incoming connection
-  printf("Waiting for incoming connections...");
+  printf("Waiting for incoming connections...\n");
   int c = sizeof(struct sockaddr_in);
   pthread_t thread_id;
 
@@ -83,7 +85,7 @@ int main(int argc, char* argv[]) {
     }
 
     //Now join the thread , so that we dont terminate before the thread
-    pthread_join(thread_id , NULL);
+    // pthread_join(thread_id , NULL);
   }
 
   if (client_socket == -1) {
