@@ -65,6 +65,7 @@ int main(int argc, char const *argv[]){
 
 	if (status == -1) {
 		printf("Error making a connection to remote socket\n");
+		sleep(3);
 	}
 
 	// recieve data from server
