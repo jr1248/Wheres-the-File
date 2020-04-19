@@ -36,7 +36,7 @@ int main(int argc, char ** argv)
 
 	/* connect to server */
 	address.sin_family = AF_INET;
-	address.sin_port = htons(8080);
+	address.sin_port = htons(8081);
 	host = gethostbyname("localhost");
 	// if (!host)
 	// {
