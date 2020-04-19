@@ -35,7 +35,7 @@ int main(int argc, char const *argv[]){
      if(argc > 2 && strcmp(argv[1],"configure") == 0){
       //make sure you have 4 arguments
        if(argc < 4){
-	printf("Missing argurment");
+	printf("Missing argurment\n");
        }
        if(strcmp(argv[1],"configure")==0){ 
       //create configure and write in ip address and port number
@@ -51,7 +51,7 @@ int main(int argc, char const *argv[]){
        }
     }
      // if configure file already exist
-     printf("configure found/n");
+     printf("configure found\n");
      char buffer[2];
      buffer[1] = '\0';
      while(read(fd,buffer,1) != 0){
@@ -81,16 +81,17 @@ int main(int argc, char const *argv[]){
   }
 
   // step 2 get ip/host name
-  int reading = read(fd, IP, strlen(IP));
+  int readMe = open("./.configure", O_RDONLY);
+  int reading = read(readMe, IP, strlen(IP));
   if(reading < 0){
     printf("Host not read\n");
-    close(fd);
+    close(readMe);
     return 0;
   }
    struct hostent* client_name = gethostbyname(IP);
    if(client_name == NULL){
      printf("Host does not exist\n");
-     close(fd);
+     close(readMe);
      return 0; 
    }
 
