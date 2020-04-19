@@ -32,13 +32,12 @@ int main(int argc, char const *argv[]){
        return 0;
      }  
     // check first cmd for configure
-     else  if(strcmp(argv[1],"configure") == 0){
-     
+     if(argc > 2 && strcmp(argv[1],"configure") == 0){
       //make sure you have 4 arguments
        if(argc < 4){
 	printf("Missing argurment");
        }
-       else{ 
+       if(strcmp(argv[1],"configure")==0){ 
       //create configure and write in ip address and port number
 	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
 	 strcpy(IP,argv[2]);
@@ -69,13 +68,14 @@ int main(int argc, char const *argv[]){
        strcat(IP, buffer);
      }
      close(fd);
-     printf("The IP number is:%s\n and port number is: %s/n", IP,port );
-
-  /*creating client down hear for now will change once methods are added*/
+     printf("The IP number is:%s\n", IP );
+     printf("The port number is: %s\n", port);
+    
+     /*creating client down hear for now will change once methods are added*/
 
   // step 1 create socket file descriptor
-
-  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+     
+     /*  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if(sockfd < 0){
     printf("Could not open socket\n");
   }
@@ -116,7 +116,7 @@ int main(int argc, char const *argv[]){
   printf("%s\n", server_response);
 
   // close the socket
-  close(sockfd);
+  close(sockfd);*/
 
   return 0;
 }
