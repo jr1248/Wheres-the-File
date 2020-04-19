@@ -19,20 +19,20 @@ void error(char *msg){
 
 
 int main(int argc, char const *argv[]){
-  char* IP;
-  char* port;
+  char IP[30];
+  char port[6];
 
   /*Configure comand*/
   //Step 1 try to open configure file
 
     int fd = open("./.configure", O_RDONLY);
-    /*  if(fd < 0){
-      printf("Need to configure\n");
-      close(fd);
-      return 0;
-      } */ 
+     if(fd < 0){
+       printf("Need to configure\n");
+       close(fd);
+       return 0;
+     }  
     // check first cmd for configure
-    if(strcmp(argv[1],"configure") == 0){
+     else  if(strcmp(argv[1],"configure") == 0){
      
       //make sure you have 4 arguments
        if(argc < 4){
@@ -51,7 +51,25 @@ int main(int argc, char const *argv[]){
 	 return 0;
        }
     }
-    
+     // if configure file already exist
+     printf("configure found/n");
+     char buffer[2];
+     buffer[1] = '\0';
+     while(read(fd,buffer,1) != 0){
+       if(buffer[0] == '\n'){
+	 while(read(fd,buffer,1) != 0){
+	   if(buffer[0] == '\n'){
+	     int Port = atoi(port);
+	     break;
+	   }
+	   strcat(port,buffer);
+	 }
+	 break;
+       }
+       strcat(IP, buffer);
+     }
+     close(fd);
+     printf("The IP number is:%s\n and port number is: %s/n", IP,port );
 
   /*creating client down hear for now will change once methods are added*/
 
