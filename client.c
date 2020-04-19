@@ -9,14 +9,11 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-
 // method to print error msg
 void error(char *msg){
   perror(msg);
   exit(0);
 }
-
-
 
 int main(int argc, char const *argv[]){
   char* IP;
@@ -30,28 +27,27 @@ int main(int argc, char const *argv[]){
       printf("Need to configure\n");
       close(fd);
       return 0;
-      } */ 
+      } */
     // check first cmd for configure
-    if(strcmp(argv[1],"configure") == 0){
-     
+    if(strcmp(argv[1], "configure") == 0){
+
       //make sure you have 4 arguments
        if(argc < 4){
-	printf("Missing argurment");
+	  	 		printf("Missing argurment");
        }
-       else{ 
-      //create configure and write in ip address and port number
-	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
-	 strcpy(IP,argv[2]);
-	 strcat(IP,"\n");
-	 write(fd, IP, strlen(IP));
-	 strcpy(port,argv[3]);
-	 strcat(port,"\n");
-	 write(fd, port, strlen(port));
-	 printf("Configure success\n");
-	 return 0;
+       else {
+      	 //create configure and write in ip address and port number
+				 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
+				 strcpy(IP,argv[2]);
+				 strcat(IP,"\n");
+				 write(fd, IP, strlen(IP));
+				 strcpy(port,argv[3]);
+				 strcat(port,"\n");
+				 write(fd, port, strlen(port));
+				 printf("Configure success\n");
+				 return 0;
        }
     }
-    
 
   /*creating client down hear for now will change once methods are added*/
 
@@ -65,7 +61,7 @@ int main(int argc, char const *argv[]){
   // step 2 get ip/host name
    struct hostent* client_name = gethostbyname(IP);
    if(client_name == NULL){
-     printf("Host does not exist\n"); 
+     printf("Host does not exist\n");
    }
 
   // step 3 build struct to connect
@@ -80,7 +76,7 @@ int main(int argc, char const *argv[]){
   server_connection.sin_family = AF_INET;
   bcopy((char*)client_name->h_addr, (char*)&server_connection.sin_addr.s_addr, client_name->h_length);
   server_connection.sin_port = htons(atoi(port));
-  
+
 
 
   //connect to server

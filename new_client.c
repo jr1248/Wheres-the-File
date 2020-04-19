@@ -1,64 +1,62 @@
 #include <stdio.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
 #include <netdb.h>
-#include <string.h>
 #include <unistd.h>
-#include <stdlib.h>
+#include <string.h>
 
-#define PORT 8080
-
-void error(char *msg)
+int main(int argc, char ** argv)
 {
-    perror(msg);
-    exit(0);
-}
+	int port;
+	int sock = -1;
+	struct sockaddr_in address;
+	struct hostent * host;
+	int len;
 
-int main(int argc, char *argv[])
-{
-    int sockfd, n;
+	/* checking commandline parameter */
+	// if (argc != 4)
+	// {
+	// 	printf("usage: %s hostname port text\n", argv[0]);
+	// 	return -1;
+	// }
 
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
+	/* obtain port number */
+	// if (sscanf(argv[2], "%d", &port) <= 0)
+	// {
+	// 	fprintf(stderr, "%s: error: wrong parameter: port\n", argv[0]);
+	// 	return -2;
+	// }
 
-    char buffer[256];
-    // if (argc < 3) {
-    //    fprintf(stderr,"usage %s hostname port\n", argv[0]);
-    //    exit(0);
-    // }
-    // portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-        error("ERROR opening socket");
-    server = gethostbyname("localhost");
-    if (server == NULL) {
-        fprintf(stderr,"ERROR, no such host\n");
-        exit(0);
-    }
+	/* create socket */
+	sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sock <= 0)
+	{
+		fprintf(stderr, "%s: error: cannot create socket\n", argv[0]);
+		return -3;
+	}
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
-    serv_addr.sin_port = htons( PORT );
+	/* connect to server */
+	address.sin_family = AF_INET;
+	address.sin_port = htons(8080);
+	host = gethostbyname("localhost");
+	// if (!host)
+	// {
+	// 	fprintf(stderr, "%s: error: unknown host %s\n", argv[0], argv[1]);
+	// 	return -4;
+	// }
+	memcpy(&address.sin_addr, host->h_addr_list[0], host->h_length);
+	if (connect(sock, (struct sockaddr *)&address, sizeof(address)))
+	{
+		fprintf(stderr, "%s: error: cannot connect to host %s\n", argv[0], argv[1]);
+		return -5;
+	}
 
-    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
-        error("ERROR connecting");
+	/* send text to server */
+	len = strlen(argv[3]);
+	write(sock, &len, sizeof(int));
+	write(sock, argv[3], len);
 
-    printf("Please enter the message: ");
-    bzero(buffer,256);
-    fgets(buffer,255,stdin);
+	/* close socket */
+	close(sock);
 
-    n = write(sockfd,buffer,strlen(buffer));
-    if (n < 0)
-         error("ERROR writing to socket");
-
-    bzero(buffer,256);
-
-    n = read(sockfd,buffer,255);
-    if (n < 0)
-         error("ERROR reading from socket");
-
-    printf("%s\n",buffer);
-    return 0;
+	return 0;
 }

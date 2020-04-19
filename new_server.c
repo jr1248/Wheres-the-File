@@ -1,72 +1,103 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <pthread.h>
 
 #define PORT 8080
 
-void connection_handler(int); /* function prototype */
+char client_message[2000];
+char buffer[1024];
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 void error(char *msg) {
     perror(msg);
     exit(1);
 }
 
-void connection_handler (int sock) {
-   int n;
-   char buffer[256];
+void * socketThread(void *msg) {
+  int newSocket = *((int *)msg);
+  recv(newSocket , client_message , 2000 , 0);
 
-   bzero(buffer,256);
-   n = read(sock,buffer,255);
-   if (n < 0) error("ERROR reading from socket");
-   printf("Here is the message: %s\n", buffer);
-   n = write(sock,"I got your message", 18);
-   if (n < 0) error("ERROR writing to socket");
+  // Send message to the client socket
+  pthread_mutex_lock(&lock);
+  char *message = malloc(sizeof(client_message)+20);
+  strcpy(message,"Hello Client : ");
+  strcat(message,client_message);
+  strcat(message,"\n");
+  strcpy(buffer,message);
+  free(message);
+  pthread_mutex_unlock(&lock);
+  sleep(1);
+  send(newSocket,buffer,13,0);
+  printf("Exit socketThread \n");
+  close(newSocket);
+  pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[]) {
 
-     int sockfd, newsockfd, clilen, pid;
-     struct sockaddr_in server, client;
+    int serverSocket, newSocket;
+    struct sockaddr_in serverAddr;
+    struct sockaddr_storage serverStorage;
+    socklen_t addr_size;
 
      // if (argc < 2) {
      //     fprintf(stderr,"ERROR, no port provided\n");
      //     exit(1);
      // }
 
-     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-     if (sockfd < 0)
+     //Create the socket
+     serverSocket = socket(PF_INET, SOCK_STREAM, 0);
+     if (serverSocket < 0)
         error("ERROR opening socket");
 
-     bzero((char *) &server, sizeof(server));
-     // portno = atoi(argv[1]);
-     server.sin_family = AF_INET;
-     server.sin_addr.s_addr = INADDR_ANY;
-     server.sin_port = htons( PORT );
+    // Configure settings of the server address struct
+    // Address family = Internet
+    serverAddr.sin_family = AF_INET;
 
-     if (bind(sockfd, (struct sockaddr *) &server, sizeof(server)) < 0)
+    //Set port number, using htons function to use proper byte order
+    serverAddr.sin_port = htons( PORT );
+
+    //Set IP address to localhost
+    serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    //Set all bits of the padding field to 0
+    memset(serverAddr.sin_zero, '\0', sizeof serverAddr.sin_zero);
+
+    //Bind the address struct to the socket
+    if (bind(serverSocket, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) < 0)
         error("ERROR on binding");
 
-     listen(sockfd, 5);
-     clilen = sizeof(client);
+    //Listen on the socket, with 40 max connection requests queued
+    if(listen(serverSocket, 5) == 0)
+      printf("Listening\n");
+   else
+      printf("Error\n");
 
-     while (1) {
-         newsockfd = accept(sockfd, (struct sockaddr *) &client, &clilen);
-         if (newsockfd < 0)
-             error("ERROR on accept");
-         pid = fork();
-         if (pid < 0)
-             error("ERROR on fork");
-         if (pid == 0)  {
-             close(sockfd);
-             connection_handler(newsockfd);
-             exit(0);
+   pthread_t tid[10];
+   int i = 0;
+   while (1) {
+      //Accept call creates a new socket for the incoming connection
+      addr_size = sizeof serverStorage;
+      newSocket = accept(serverSocket, (struct sockaddr *) &serverStorage, &addr_size);
+
+      //for each client request creates a thread and assign the client request to it to process
+      //so the main thread can entertain next request
+      if( pthread_create(&tid[i], NULL, socketThread, &newSocket) != 0 )
+           printf("Failed to create thread\n");
+
+      if( i >= 5) {
+         i = 0;
+         while(i < 5) {
+           pthread_join(tid[i++],NULL);
          }
-         else close(newsockfd);
-     } /* end of while */
-     return 0; /* we never get here */
+         i = 0;
+      }
+    }
+    return 0;
 }
