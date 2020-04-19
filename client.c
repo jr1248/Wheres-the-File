@@ -16,25 +16,47 @@ void error(char *msg){
 }
 
 int main(int argc, char const *argv[]){
-  char* IP;
-  char* port;
+  char IP[30];
+  char port[6];
 
   /*Configure comand*/
   //Step 1 try to open configure file
 
     int fd = open("./.configure", O_RDONLY);
+<<<<<<< HEAD
     /*  if(fd < 0){
       printf("Need to configure\n");
       close(fd);
       return 0;
       } */
+||||||| 62cf250
+    /*  if(fd < 0){
+      printf("Need to configure\n");
+      close(fd);
+      return 0;
+      } */ 
+=======
+     if(fd < 0){
+       printf("Need to configure\n");
+       close(fd);
+       return 0;
+     }  
+>>>>>>> 3235ee5cbcd670b1f838f34e4e8b9f475f80a576
     // check first cmd for configure
+<<<<<<< HEAD
     if(strcmp(argv[1], "configure") == 0){
 
+||||||| 62cf250
+    if(strcmp(argv[1],"configure") == 0){
+     
+=======
+     if(argc > 2 && strcmp(argv[1],"configure") == 0){
+>>>>>>> 3235ee5cbcd670b1f838f34e4e8b9f475f80a576
       //make sure you have 4 arguments
        if(argc < 4){
 	  	 		printf("Missing argurment");
        }
+<<<<<<< HEAD
        else {
       	 //create configure and write in ip address and port number
 				 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
@@ -46,14 +68,68 @@ int main(int argc, char const *argv[]){
 				 write(fd, port, strlen(port));
 				 printf("Configure success\n");
 				 return 0;
+||||||| 62cf250
+       else{ 
+      //create configure and write in ip address and port number
+	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
+	 strcpy(IP,argv[2]);
+	 strcat(IP,"\n");
+	 write(fd, IP, strlen(IP));
+	 strcpy(port,argv[3]);
+	 strcat(port,"\n");
+	 write(fd, port, strlen(port));
+	 printf("Configure success\n");
+	 return 0;
+=======
+       if(strcmp(argv[1],"configure")==0){ 
+      //create configure and write in ip address and port number
+	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
+	 strcpy(IP,argv[2]);
+	 strcat(IP,"\n");
+	 write(fd, IP, strlen(IP));
+	 strcpy(port,argv[3]);
+	 strcat(port,"\n");
+	 write(fd, port, strlen(port));
+	 printf("Configure success\n");
+	 return 0;
+>>>>>>> 3235ee5cbcd670b1f838f34e4e8b9f475f80a576
        }
     }
+<<<<<<< HEAD
 
   /*creating client down hear for now will change once methods are added*/
+||||||| 62cf250
+    
+
+  /*creating client down hear for now will change once methods are added*/
+=======
+     // if configure file already exist
+     printf("configure found/n");
+     char buffer[2];
+     buffer[1] = '\0';
+     while(read(fd,buffer,1) != 0){
+       if(buffer[0] == '\n'){
+	 while(read(fd,buffer,1) != 0){
+	   if(buffer[0] == '\n'){
+	     int Port = atoi(port);
+	     break;
+	   }
+	   strcat(port,buffer);
+	 }
+	 break;
+       }
+       strcat(IP, buffer);
+     }
+     close(fd);
+     printf("The IP number is:%s\n", IP );
+     printf("The port number is: %s\n", port);
+    
+     /*creating client down hear for now will change once methods are added*/
+>>>>>>> 3235ee5cbcd670b1f838f34e4e8b9f475f80a576
 
   // step 1 create socket file descriptor
-
-  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+     
+     /*  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if(sockfd < 0){
     printf("Could not open socket\n");
   }
@@ -94,7 +170,7 @@ int main(int argc, char const *argv[]){
   printf("%s\n", server_response);
 
   // close the socket
-  close(sockfd);
+  close(sockfd);*/
 
   return 0;
 }
