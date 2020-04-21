@@ -29,15 +29,15 @@ int main(int argc, char const *argv[]){
      if(fd < 0){
        printf("Need to configure\n");
        close(fd);
-       return 0;
-     }  
+       // return 0;
+     }
     // check first cmd for configure
      if(argc > 2 && strcmp(argv[1],"configure") == 0){
       //make sure you have 4 arguments
        if(argc < 4){
 	printf("Missing argurment\n");
        }
-       if(strcmp(argv[1],"configure")==0){ 
+       if(strcmp(argv[1],"configure")==0){
       //create configure and write in ip address and port number
 	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
 	 strcpy(IP,argv[2]);
@@ -70,11 +70,11 @@ int main(int argc, char const *argv[]){
      close(fd);
      printf("The IP number is:%s\n", IP );
      printf("The port number is: %s\n", port);
-    
+
      /*creating client down hear for now will change once methods are added*/
 
   // step 1 create socket file descriptor
-     
+
    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if(sockfd < 0){
     printf("Could not open socket\n");
@@ -92,7 +92,7 @@ int main(int argc, char const *argv[]){
    if(client_name == NULL){
      printf("Host does not exist\n");
      close(readMe);
-     return 0; 
+     return 0;
    }
 
   // step 3 build struct to connect
@@ -107,7 +107,7 @@ int main(int argc, char const *argv[]){
   server_connection.sin_family = AF_INET;
   bcopy((char*)client_name->h_addr,(char*)&server_connection.sin_addr.s_addr, client_name->h_length);
   server_connection.sin_port = htons(atoi(port));
-  
+
 
 
   //connect to server
