@@ -1,13 +1,17 @@
 #include <stdio.h>
-#include <sys/types.h>
-#include <netdb.h>
 #include <stdlib.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <string.h>
-#include <pthread.h>
+#include <ctype.h>
+#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <limits.h>
 
 
 // method to print error msg
@@ -16,116 +20,84 @@ void error(char *msg){
   exit(0);
 }
 
-
-
 int main(int argc, char const *argv[]){
-  char IP[30];
-  char port[6];
+  // char IP[30];
+  // char port[6];
 
-  /*Configure comand*/
-  //Step 1 try to open configure file
+  if (argc < 2) {
+    error("ERROR: Not enough arguments");
+  }
 
-    int fd = open("./.configure", O_RDONLY);
-     if(fd < 0){
-       printf("Need to configure\n");
-       close(fd);
-       // return 0;
-     }
-    // check first cmd for configure
-     if(argc > 2 && strcmp(argv[1],"configure") == 0){
-      //make sure you have 4 arguments
-       if(argc < 4){
-	printf("Missing argurment\n");
-       }
-       if(strcmp(argv[1],"configure")==0){
-      //create configure and write in ip address and port number
-	 fd=open("./.configure",O_WRONLY | O_CREAT, 0777);
-	 strcpy(IP,argv[2]);
-	 strcat(IP,"\n");
-	 write(fd, IP, strlen(IP));
-	 strcpy(port,argv[3]);
-	 strcat(port,"\n");
-	 write(fd, port, strlen(port));
-	 printf("Configure success\n");
-	 return 0;
-       }
+  if (strcmp("configure", argv[1]) == 0) {
+    if (argc < 4) {
+      error("ERROR: Need IP address and port number");
     }
-     // if configure file already exist
-     printf("configure found\n");
-     char buffer[2];
-     buffer[1] = '\0';
-     while(read(fd,buffer,1) != 0){
-       if(buffer[0] == '\n'){
-	 while(read(fd,buffer,1) != 0){
-	   if(buffer[0] == '\n'){
-	     int Port = atoi(port);
-	     break;
-	   }
-	   strcat(port,buffer);
-	 }
-	 break;
-       }
-       strcat(IP, buffer);
-     }
-     close(fd);
-     printf("The IP number is:%s\n", IP );
-     printf("The port number is: %s\n", port);
+    else if (argc > 4) {
+      error("ERROR: Too many arguments");
+    }
 
-     /*creating client down hear for now will change once methods are added*/
+    /* Store IP address and port number in a file */
+    int fd = open("./.configure", O_WRONLY | O_CREAT | O_TRUNC, 0777);
+    if (fd < 0) {
+      error("ERROR: Need to configure");
+    }
+
+    write(fd, argv[2], strlen(argv[2]));
+    write(fd, "\n", 1);
+    write(fd, argv[3], strlen(argv[3]));
+		write(fd, "\n", 1);
+    close(fd);
+    printf("Configuration successful.\n");
+  }
 
   // step 1 create socket file descriptor
-
-   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if(sockfd < 0){
-    printf("Could not open socket\n");
+  int sockfd;
+  struct addrinfo hints, *res, *p;
+  char* token;
+  int fd_conf = open("./.configure", O_RDONLY);
+  /* Get info from .Configure, if it exists */
+  if(fd_conf < 0) {
+    error("ERROR: Could not open \".configure\" file");
   }
-
-  // step 2 get ip/host name
-  int readMe = open("./.configure", O_RDONLY);
-  int reading = read(readMe, IP, strlen(IP));
-  if(reading < 0){
-    printf("Host not read\n");
-    close(readMe);
-    return 0;
+  char buff[50];
+  read(fd_conf, buff, 50);
+  token = strtok(buff, "\n");
+  char* host = (char*) malloc(strlen(token) + 1);
+  strcpy(host, token);
+  token = strtok(NULL, "\n");
+  char *port = (char *) malloc(strlen(token) + 1);
+  strcpy(port, token);
+  int received, sent;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  if (getaddrinfo(host, port, &hints, &res) != 0) {
+    error("ERROR: getaddrinfo() failed");
   }
-   struct hostent* client_name = gethostbyname(IP);
-   if(client_name == NULL){
-     printf("Host does not exist\n");
-     close(readMe);
-     return 0;
-   }
-
-  // step 3 build struct to connect
-
-  struct sockaddr_in server_connection;
-
-  // step 4 initialize connection
-
-  bzero((char*)&server_connection, sizeof(server_connection));
-
-  //step 5 make server_connection related to internet
-  server_connection.sin_family = AF_INET;
-  bcopy((char*)client_name->h_addr,(char*)&server_connection.sin_addr.s_addr, client_name->h_length);
-  server_connection.sin_port = htons(atoi(port));
-
-
-
-  //connect to server
-  int status = connect(sockfd, (struct sockaddr*)&server_connection, sizeof(server_connection));
-
-  if (status == -1) {
-    error("Error making a connection to remote socket\n");
-    sleep(3);
+  p = res;
+  printf("Waiting for server...\n");
+  while (1) {
+    if (p == NULL) {
+      p = res;
+    }
+    if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) {
+      fprintf(stderr, "ERROR: Could not open client-side socket.\n");
+      p = p->ai_next;
+      sleep(3);
+      continue;
+    }
+    if (connect(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
+      close(sockfd);
+      p = p->ai_next;
+      sleep(3);
+      continue;
+    }
+    break;
   }
+  freeaddrinfo(res);
 
-  // recieve data from server
-  char server_response[256];
-  recv(sockfd, &server_response, sizeof(server_response), 0);
-
-  printf("%s\n", server_response);
-
-  // close the socket
-  close(sockfd);
+  // // close the socket
+  // close(sockfd);
 
   return 0;
 }
