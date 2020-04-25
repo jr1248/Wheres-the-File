@@ -14,6 +14,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include "helper.h"
 
 static int keep_running = 1;
 
@@ -160,17 +161,6 @@ int main(int argc, char *argv[]) {
 	return 0;
 }
 
-int exists(char* path) {
-	DIR* dir = opendir(path);
-	if (dir == NULL) {
-		printf("Could not open directory\n");
-		closedir(dir);
-    return -1;
-	}
-	closedir(dir);
-	return 0;
-}
-
 void *thread_handler(void *args) {
 	struct sigaction sigact;
 	sigact.sa_handler = run_handler;
@@ -258,6 +248,42 @@ void *thread_handler(void *args) {
 				pthread_exit(NULL);
 			}
 		}
+		else if (token[0] == 'd') {
+			/* DESTROY */
+			token = strtok(NULL, ":");
+			char* path = (char*)malloc(strlen(token) + 22);
+			snprintf(path, strlen(token) + 22, ".server_directory/%s", token);
+			char sending[2];
+			if (exists(path) == -1) {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", token);
+				sending[0] = 'x';
+				sent = send(client_sock, sending, 2, 0);
+				free(path);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			else {
+				/* Project exists */
+				int check = remove_directory(path);
+				if (check == 0) {
+					sending[0] = 'g';
+					sent = send(client_sock, sending, 2, 0);
+					free(path);
+				}
+				else {
+					sending[0] = 'b';
+					sent = send(client_sock, sending, 2, 0);
+					fprintf(stderr, "ERROR: Could not remove \"%s\" project from server.\n", token);
+					free(path);
+					pthread_mutex_unlock(&context->lock);
+					pthread_exit(NULL);
+				}
+			}
+			printf("Project \"%s\" deleted from server.\n", token);
+		}
+		// else if (token[0] == 'v') {
+		// 	/* CURRENTVERSION */
+		// }
 	}
 	if (!keep_running) {
 		printf("Server closed.\n");
