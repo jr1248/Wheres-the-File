@@ -281,8 +281,58 @@ void *thread_handler(void *args) {
 			}
 			printf("Project \"%s\" deleted from server.\n", token);
 		}
-		// else if (token[0] == 'v') {
-		// 	/* CURRENTVERSION */
+		else if (token[0] == 'v') {
+			/* CURRENTVERSION */
+			token = strtok(NULL, ":");
+			char* proj_path = (char*)malloc(strlen(token) + 22);
+			snprintf(proj_path, strlen(token) + 22, ".server_directory/%s", token);
+			if (exists(proj_path) == -1) {
+				char sending[2] = "b";
+				sent = send(client_sock, sending, 2, 0);
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", token);
+				free(proj_path);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			free(proj_path);
+			/* Get server's copy of .Manifest for project */
+			char *manifest_path = (char *) malloc(strlen(token) + 31);
+			snprintf(manifest_path, strlen(token) + 31, ".server_directory/%s/.Manifest", token);
+			int fd_mani = open(manifest_path, O_RDONLY);
+			if (fd_mani < 0) {
+				fprintf(stderr, "ERROR: Unable to open \".Manifest\" file for \"%s\" project.\n", token);
+				free(manifest_path);
+				free(proj_path);
+				char sending[2] = "x";
+				sent = send(client_sock, sending, 2, 0);
+				close(fd_mani);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			struct stat s = {0};
+			if (fstat(fd_mani, &s) < 0) {
+				fprintf(stderr, "ERROR: fstat() failed.\n");
+				char sending[2] = "x";
+				sent = send(client_sock, sending, 2, 0);
+				free(manifest_path);
+				close(fd_mani);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			char* contents = malloc(s.st_size + 1);
+			int br = read(fd_mani, contents, s.st_size);
+			contents[br] = '\0';
+			sent = send(client_sock, contents, br, 0);
+			while (sent < br) {
+				int bs = send(client_sock, contents + sent, br, 0);
+				sent += bs;
+			}
+			printf("Sent .Manifest file for \"%s\" project to client.\n", token);
+			close(fd_mani);
+			free(manifest_path);
+		}
+		// else if (token[0] == 'o') {
+		// 	/* COMMIT */
 		// }
 	}
 	if (!keep_running) {
