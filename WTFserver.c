@@ -294,7 +294,7 @@ void *thread_handler(void *args) {
 				pthread_mutex_unlock(&context->lock);
 				pthread_exit(NULL);
 			}
-			free(proj_path);
+			// free(proj_path);
 			/* Get server's copy of .Manifest for project */
 			char* manifest_path = (char*)malloc(strlen(token) + 31);
 			snprintf(manifest_path, strlen(token) + 31, ".server_directory/%s/.Manifest", token);
@@ -323,7 +323,7 @@ void *thread_handler(void *args) {
 			snprintf(size, 256, "%d", s.st_size);
 			sent = send(client_sock, size, 256, 0);
 			if (sent < 0) {
-				fprintf(stderr, "ERROR: Could not send size of \"%s\".\n", mani_path);
+				fprintf(stderr, "ERROR: Could not send size of \"%s\".\n", manifest_path);
 				free(manifest_path);
 				char sending[2] = "x";
 				sent = send(client_sock, sending, 2, 0);
