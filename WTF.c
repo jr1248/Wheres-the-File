@@ -281,8 +281,81 @@ int main(int argc, char const *argv[]){
 				return EXIT_FAILURE;
       }
     }
-    // else if (strcmp(argv[1], "currentversion") == 0) {
-    //   /* CURRENTVERSION */
+    else if (strcmp(argv[1], "currentversion") == 0) {
+      /* CURRENTVERSION */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      char sending[strlen(argv[2]) + 3];
+      snprintf(sending, strlen(argv[2]) + 3, "v:%s", argv[2]);
+      sent = send(sockfd, sending, strlen(sending), 0);
+      char buff[256];
+      received = recv(sockfd, buff, 255, 0);
+      if (buff[0] == 'x') {
+				fprintf(stderr, "ERROR: Failed to get current version for project \"%s\" from server.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      buff[received] = '\0';
+      /* For all files sent from server, get file size first, then get actual file contents */
+			/* Getting .Manifest from server */
+      int size = atoi(buff);
+      char *v = (char*)malloc(size + 2);
+      received = recv(sockfd, v, size, 0);
+      if (v[0] == 'x') {
+				fprintf(stderr, "ERROR: Failed to get current version for project \"%s\" from server.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      else if (v[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      if (iscntrl(v[0])) {
+				++v;
+			}
+      if (received < size) {
+        int offset = 0;
+        int r = size - received;
+        while ((received = recv(sockfd, (v + offset), r, 0)) > 0 && offset < size && r > 0) {
+          printf("receiving: %s", v + offset);
+					r -= received;
+					offset += received;
+        }
+      }
+      v[size] = '\0';
+      token = strtok(v, "\n");
+      printf("PROJECT: %s (Version %s)\n", argv[2], token);
+			printf("----------------------------\n");
+			int count = 1;
+      /* Print file number and file path, but skip hash */
+      while (token != NULL) {
+        token = strtok(NULL, "\n\t");
+        if (token == NULL && count == 1) {
+          printf("No entries\n");
+					break;
+        }
+        else if (token == NULL) {
+          break;
+        }
+        if (count % 3 == 0) {
+          ++count;
+          continue;
+        }
+        if (count % 3 == 2) {
+          printf("%s\n", token);
+        }
+        else if (count % 3 == 1) {
+          printf("%s\t", token);
+        }
+        ++count;
+      }
+    }
+    // else if (strcmp(argv[1], "commit") == 0) {
+    //   /* COMMIT */
     // }
   }
   return 0;
