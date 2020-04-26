@@ -21,15 +21,6 @@ void error(char *msg){
   exit(0);
 }
 
-int get_file_size(int fd) {
-	struct stat st = {0};
-	if (fstat(fd, &st) < 0) {
-		fprintf(stderr, "ERROR: fstat() failed.\n");
-		return -1;
-	}
-	return st.st_size;
-}
-
 int main(int argc, char const *argv[]){
   // char IP[30];
   // char port[6];
@@ -354,8 +345,190 @@ int main(int argc, char const *argv[]){
         ++count;
       }
     }
-    // else if (strcmp(argv[1], "commit") == 0) {
-    //   /* COMMIT */
+    else if (strcmp(argv[1], "commit") == 0) {
+      /* COMMIT */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = strlen(argv[2] + 3);
+      char* to_send = (char*)malloc(send_size);
+      /* Check if .Update exists; if yes, check if it's empty */
+      char update_path[strlen(argv[2]) + 9];
+			snprintf(update_path, strlen(argv[2]) + 9, "%s/.Update", argv[2]);
+			int update_fd = open(update_path, O_RDONLY);
+      if (update_fd >= 0) {
+				char temp[2];
+				int bytes_read = read(update_fd, temp, 1);
+				if (bytes_read > 0) {
+					snprintf(to_send, send_size, "x");
+					sent = send(sockfd, to_send, 2, 0);
+					fprintf(stderr, "ERROR: Non-empty .Update exists locally for project \"%s\".\n", argv[2]);
+					free(to_send);
+					close(update_fd);
+					return EXIT_FAILURE;
+				}
+				close(update_fd);
+			}
+      snprintf(to_send, send_size, "o:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+
+      /* Get server's .Manifest */
+      char* receiving = (char*)malloc(sizeof(int));
+      received = recv(sockfd, receiving, sizeof(int), 0);
+      if (receiving[0] == 'x') {
+				fprintf(stderr, "ERROR: Failed to get server's .Manifest for project \"%s\" from server.\n", argv[2]);
+				free(to_send);
+				free(receiving);
+				return EXIT_FAILURE;
+			}
+      else if (receiving[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				free(to_send);
+				free(receiving);
+				return EXIT_FAILURE;
+			}
+      int server_manifest_size = atoi(receiving);
+			free(receiving);
+
+      receiving = (char *) malloc(server_manifest_size + 1);
+      received = recv(sockfd, receiving, server_manifest_size, 0);
+			while (received < server_manifest_size) {
+				int bytes_received = recv(sockfd, receiving + received, server_manifest_size,0);
+				received += bytes_received;
+			}
+      char server_manifest_input[received + 1];
+			strcpy(server_manifest_input, receiving);
+			server_manifest_input[received] = '\0';
+			/* Get client's .Manifest */
+			char* client_manifest = (char*)malloc(strlen(argv[2]) + 11);
+			snprintf(client_manifest, strlen(argv[2]) + 11, "%s/.Manifest", argv[2]);
+			int fd_mani = open(client_manifest, O_RDWR);
+			int client_manifest_size = get_file_size(fd_mani);
+
+      if (fd_mani < 0 || client_manifest_size < 0) {
+				fprintf(stderr, "ERROR: Unable to open local .Manifest for project \"%s\".\n", argv[2]);
+				free(to_send);
+				to_send = (char*)malloc(2);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+				free(to_send);
+				free(receiving);
+				free(client_manifest);
+				return EXIT_FAILURE;
+			}
+      char client_manifest_input[client_manifest_size + 1];
+			int br = read(fd_mani, client_manifest_input, client_manifest_size);
+			client_manifest_input[br] = '\0';
+
+      /* Check versions; if they don't match, cease operation */
+      char get_version[256];
+      strcpy(get_version, client_manifest_input);
+
+      char* vers_tok = strtok(get_version, "\n");
+
+      int client_manifest_version = atoi(vers_tok);
+			char stemp[strlen(server_manifest_input)];
+
+      snprintf(stemp, strlen(server_manifest_input), "%s", server_manifest_input);
+      char* server_vers_tok = strtok(stemp, "\n");
+
+      if (client_manifest_version != atoi(server_vers_tok)) {
+				fprintf(stderr, "ERROR: Local \"%s\" project has not been updated.\n", argv[2]);
+				free(to_send);
+				to_send = (char *) malloc(2);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+				free(to_send);
+				free(receiving);
+				free(client_manifest);
+				return EXIT_FAILURE;
+			}
+
+      /* Setup .Commit */
+      char* path_commit = (char*)malloc(strlen(argv[2]) + 10);
+			snprintf(path_commit, strlen(argv[2]) + 10, "%s/.Commit", argv[2]);
+			int commit_fd = open(path_commit, O_RDWR | O_CREAT | O_TRUNC, 0777);
+      if (commit_fd < 0) {
+        printf("ERROR: Could not open or create .Commit for project \"%s\".\n", argv[2]);
+        free(to_send);
+        to_send = (char*)malloc(2);
+        snprintf(to_send, 2, "x");
+        sent = send(sockfd, to_send, 2, 0);
+        free(to_send);
+        free(receiving);
+        free(client_manifest);
+        free(path_commit);
+        close(commit_fd);
+        return EXIT_FAILURE;
+      }
+      /* Run helper function to fill .Commit */
+      if (commit(commit_fd, client_manifest_input, server_manifest_input, fd_mani) == -1) {
+        fprintf(stderr, "ERROR: Local \"%s\" project is not up-to-date with server.\n", argv[2]);
+        free(to_send);
+        to_send = (char*)malloc(2);
+        snprintf(to_send, 2, "b");
+        sent = send(sockfd, to_send, 2, 0);
+        free(to_send);
+        free(receiving);
+        free(client_manifest);
+        return EXIT_FAILURE;
+      }
+      free(to_send);
+      int commit_size = get_file_size(commit_fd);
+      if (commit_size < 0) {
+        fprintf(stderr, "ERROR: Could not get size of .Commit for \"%s\" project.\n", argv[2]);
+        free(to_send);
+        to_send = (char*)malloc(2);
+        snprintf(to_send, 2, "x");
+        sent = send(sockfd, to_send, 2, 0);
+        free(to_send);
+        free(receiving);
+        free(client_manifest);
+        free(path_commit);
+        close(commit_fd);
+        return EXIT_FAILURE;
+      }
+      send_size = sizeof(commit_size);
+      to_send = (char*)malloc(send_size + 1);
+      snprintf(to_send, send_size, "%d", commit_size);
+      sent = send(sockfd, to_send, send_size, 0);
+      /* If .Commit is empty, don't bother doing anything else */
+      if (commit_size == 0) {
+				fprintf(stderr, "ERROR: .Commit for project \"%s\" is empty.\n", argv[2]);
+				free(to_send);
+				free(receiving);
+				free(client_manifest);
+				free(path_commit);
+				close(commit_fd);
+				return EXIT_FAILURE;
+			}
+      lseek(commit_fd, 0, SEEK_SET);
+      free(to_send);
+      to_send = (char*)malloc(commit_size);
+      int b_read = read(commit_fd, to_send, commit_size);
+      sent = send(sockfd, to_send, commit_size, 0);
+      received = recv(sockfd, receiving, 2, 0);
+      /* Ensure server was able to create its own .Commit */
+      if (receiving[0] == 'b') {
+				fprintf(stderr, "ERROR: Server failed to create its own .Commit for project \"%s\".\n", argv[2]);
+				free(receiving);
+				free(to_send);
+				return EXIT_FAILURE;
+			}
+      else if (receiving[0] == 'g') {
+				free(receiving);
+				free(to_send);
+				printf("Commit successful!\n");
+			}
+      close(commit_fd);
+    }
+    // else if (strcmp(argv[1], "push") == 0) {
+    //   /* PUSH */
     // }
   }
   return 0;

@@ -1,6 +1,7 @@
 #ifndef HELPER_H
 #define HELPER_H
 
+int get_file_size(int fd);
 int add(int fd_manifest, char *hashcode, char *path, char *input, int flag);
 int removeFile(int fd_manifest, char *path, char *input);
 int exists(char *path);

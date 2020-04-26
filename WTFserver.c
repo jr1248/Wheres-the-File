@@ -343,8 +343,116 @@ void *thread_handler(void *args) {
 			close(fd_mani);
 			free(manifest_path);
 		}
-		// else if (token[0] == 'o') {
-		// 	/* COMMIT */
+		else if (token[0] == 'o') {
+			/* COMMIT */
+			token = strtok(NULL, ":");
+			char* path = (char *) malloc(strlen(token) + 22);
+			snprintf(path, strlen(token) + 22, ".server_directory/%s", token);
+			if (exists(path) == -1) {
+				char sending[2] = "b";
+				sent = send(client_sock, sending, 2, 0);
+				free(path);
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", token);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			free(path);
+			/* Get .Manifest */
+			char* manifest_path = (char*)malloc(strlen(token) + 31);
+			snprintf(manifest_path, strlen(token) + 31, ".server_directory/%s/.Manifest", token);
+			char* to_send = (char*)malloc(2);
+			int manifest_fd = open(manifest_path, O_RDONLY);
+			int manifest_size = get_file_size(manifest_fd);
+			if (manifest_fd < 0 || manifest_size < 0) {
+				fprintf(stderr, "ERROR: Unable to open \".Manifest\" file for \"%s\" project.\n", token);
+				free(manifest_path);
+				snprintf(to_send, 2, "x");
+				sent = send(client_sock, to_send, 2, 0);
+				close(manifest_fd);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			int send_size = sizeof(manifest_size);
+			free(to_send);
+			to_send = (char*)malloc(send_size + 1);
+			snprintf(to_send, send_size, "%d", manifest_size);
+			sent = send(client_sock, to_send, send_size, 0);
+			free(to_send);
+			send_size = manifest_size;
+			to_send = (char*)malloc(send_size + 1);
+			int bytes_read = read(manifest_fd, to_send, send_size);
+			sent = send(client_sock, to_send, bytes_read, 0);
+			while (sent < bytes_read) {
+				int bytes_sent = send(client_sock, to_send + sent, bytes_read, 0);
+				sent += bytes_sent;
+			}
+			char manifest_input[bytes_read + 1];
+			strcpy(manifest_input, to_send);
+			/* Get .Commit data */
+			char* receiving = (char*)malloc(sizeof(int));
+			received = recv(client_sock, receiving, sizeof(int), 0);
+			if (receiving[0] == 'x') {
+				fprintf(stderr, "Client failed to create new .Commit for project \"%s\".\n", token);
+				free(receiving);
+				free(manifest_path);
+				free(to_send);
+				close(manifest_fd);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			else if (receiving[0] == 'b') {
+				fprintf(stderr, "Client's copy of project \"%s\" is not up-to-date.\n", token);
+				free(receiving);
+				free(manifest_path);
+				free(to_send);
+				close(manifest_fd);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			int commit_size = atoi(receiving);
+			if (commit_size == 0) {
+				fprintf(stderr, "ERROR: Empty .Commit sent from client for project \"%s\".\n", token);
+				close(manifest_fd);
+				free(receiving);
+				free(to_send);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			free(receiving);
+			receiving = (char*)malloc(commit_size + 1);
+			received = recv(client_sock, receiving, commit_size, 0);
+			/* Create random version number to differentiate .Commits */
+			srand(time(0));
+			int ver = rand() % 10000;
+			char* commit_path = (char*)malloc(strlen(token) + 28 + sizeof(ver));
+			snprintf(commit_path, strlen(token) + 28 + sizeof(ver), ".server_directory/%s/.Commit%d", token, ver);
+			int fd_comm_serv = open(commit_path, O_CREAT | O_RDWR | O_APPEND, 0777);
+			free(to_send);
+			to_send = (char*)malloc(2);
+			if (fd_comm_serv < 0) {
+				fprintf(stderr, "ERROR: Unable to create .Commit%d for \"%s\" project.\n", ver, token);
+				free(commit_path);
+				snprintf(to_send, 2, "b");
+				sent = send(client_sock, to_send, 2, 0);
+				free(receiving);
+				free(to_send);
+				close(manifest_fd);
+				close(fd_comm_serv);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			free(commit_path);
+			write(fd_comm_serv, receiving, received);
+			snprintf(to_send, 2, "g");
+			sent = send(client_sock, to_send, 2, 0);
+			free(receiving);
+			free(to_send);
+			close(fd_comm_serv);
+			close(manifest_fd);
+			printf("Commit successful.\n");
+		}
+		// else if (token[0] == 'p') {
+		// 	/* PUSH */
 		// }
 	}
 	if (!keep_running) {
