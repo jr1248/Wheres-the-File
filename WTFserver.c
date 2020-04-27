@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
     /* Create server directory if doesn't already exist */
 		struct stat st = {0};
 		if (stat("./.server_directory", &st) == -1) {
-			mkdir("./.server_directory", 0744);
+			mkdir("./.server_directory", 0777);
 		}
 
     printf("Waiting for client...\n");
@@ -209,26 +209,27 @@ void *thread_handler(void *args) {
 			char sending[2];
 			/* If dir doesn't already exist, create it; else, send error char */
 			if (exists(proj_path) == -1) {
-				mkdir(proj_path, 0700);
+				mkdir(proj_path, 0777);
 				char* version_path = (char*)malloc(strlen(proj_path) + 9);
 				snprintf(version_path, strlen(proj_path) + 9, "%sversion0", proj_path);
-				mkdir(version_path, 0700);
+				mkdir(version_path, 0777);
 				/* Set up version's own .Manifest, for rollback purposes */
 				char mani[strlen(version_path) + 11];
 				snprintf(mani, strlen(version_path) + 11, "%s/.Manifest", version_path);
-				int fd_mani = open(mani, O_CREAT | O_WRONLY, 0700);
+				int fd_mani = open(mani, O_CREAT | O_WRONLY, 0777);
 				write(fd_mani, "0\n", 2);
 				close(fd_mani);
 				free(version_path);
 				/* Set up project-wide .Manifest */
 				char* manifest_path = (char*)malloc(strlen(proj_path) + 11);
 				snprintf(manifest_path, strlen(proj_path) + 11, "%s.Manifest", proj_path);
-				write(fd_mani, "0\n", 2);
-				close(fd_mani);
+				int fd_manifest = open(manifest_path, O_CREAT | O_WRONLY, 0777);
+				write(fd_manifest, "0\n", 2);
+				close(fd_manifest);
 				/* Set up project-wide .History */
 				char history_path[strlen(proj_path) + 10];
 				snprintf(history_path, strlen(proj_path) + 10, "%s.History", proj_path);
-				int hist_fd = open(history_path, O_CREAT | O_WRONLY, 0700);
+				int hist_fd = open(history_path, O_CREAT | O_WRONLY, 0777);
 				write(hist_fd, "create\n0\n\n", 10);
 				close(hist_fd);
 				free(manifest_path);
@@ -451,8 +452,308 @@ void *thread_handler(void *args) {
 			close(manifest_fd);
 			printf("Commit successful.\n");
 		}
-		// else if (token[0] == 'p') {
-		// 	/* PUSH */
+		else if (token[0] == 'p') {
+			/* PUSH */
+			token = strtok(NULL, ":");
+			char proj[strlen(token) + 1];
+			strcpy(proj, token);
+			proj[strlen(token)] = '\0';
+			char* proj_path = (char*)malloc(strlen(token) + 22);
+			snprintf(proj_path, strlen(token) + 22, ".server_directory/%s", token);
+			char* to_send = (char*)malloc(2);
+			if (exists(proj_path) == -1) {
+				snprintf(to_send, 2, "b");
+			}
+			else {
+				snprintf(to_send, 2, "g");
+			}
+			sent = send(client_sock, to_send, 2, 0);
+			char *receiving = (char*)malloc(256);
+			received = recv(client_sock, receiving, 256, 0);
+			int size = atoi(receiving);
+			if (size == 0) {
+				fprintf(stderr, "ERROR: Client's .Commit is empty for project \"%s\".\n", token);
+				free(receiving);
+				free(to_send);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			free(receiving);
+			receiving = (char*)malloc(size + 1);
+			received = recv(client_sock, receiving, size, 0);
+			while (received < size) {
+				int bytes_received = recv(client_sock, receiving + received, size, 0);
+				received += bytes_received;
+			}
+			receiving[received] = '\0';
+
+			/* Get the client's commit */
+			char commit_input[strlen(receiving) + 1];
+			strcpy(commit_input, receiving);
+			commit_input[strlen(receiving)] = '\0';
+			int commit_check = push_check(proj, commit_input);
+			if (commit_check == -1) {
+				free(receiving);
+				snprintf(to_send, 2, "x");
+				sent = send(client_sock, to_send, 2, 0);
+				free(to_send);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			else if (commit_check == 1) {
+				free(receiving);
+				fprintf(stderr, "ERROR: Could not find matching .Commit for project \"%s\".\n", proj);
+				snprintf(to_send, 2, "b");
+				sent = send(client_sock, to_send, 2, 0);
+				free(to_send);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			/* Open server's .Manifest */
+			char manifest_path[strlen(proj) + 31];
+			snprintf(manifest_path, strlen(proj) + 31, ".server_directory/%s/.Manifest", proj);
+			int fd_mani = open(manifest_path, O_RDWR);
+			if (fd_mani < 0) {
+				free(receiving);
+				snprintf(to_send, 2, "x");
+				sent = send(client_sock, to_send, 2, 0);
+				free(to_send);
+				fprintf(stderr, "ERROR: Failed to open .Manifest for project \"%s\".\n", proj);
+				close(fd_mani);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			int manifest_size = get_file_size(fd_mani);
+			if (manifest_size < 0) {
+				free(receiving);
+				snprintf(to_send, 2, "x");
+				sent = send(client_sock, to_send, 2, 0);
+				free(to_send);
+				fprintf(stderr, "ERROR: Failed to get .Manifest's size for project \"%s\".\n", proj);
+				close(fd_mani);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			snprintf(to_send, 2, "g");
+			sent = send(client_sock, to_send, 2, 0);
+			/* Set up a copy of the old .Manifest in case failure and a new .Manifest with updated version number */
+			char buff[manifest_size + 1];
+			int br = read(fd_mani, buff, manifest_size);
+			char mani[manifest_size + 1];
+			char* mani_buff = (char*)malloc(manifest_size + 1);
+			strncpy(mani, buff, br);
+			strncpy(mani_buff, buff, br);
+			char* manifest_token = strtok(buff, "\n");
+			int version = atoi(manifest_token);
+			mani_buff += strlen(manifest_token) + 1;
+			char* wr_man = malloc(strlen(mani_buff) + 2 + sizeof(version + 1));
+			snprintf(wr_man, strlen(mani_buff) + 2 + sizeof(version + 1), "%d\n%s", version + 1, mani_buff);
+			close(fd_mani);
+			fd_mani = open(manifest_path, O_RDWR | O_TRUNC);
+			write(fd_mani, wr_man, strlen(wr_man));
+			char vers_path[strlen(proj) + 29 + sizeof(version)];
+			snprintf(vers_path, strlen(proj) + 29 + sizeof(version), ".server_directory/%s/version%d", proj, version);
+			char vp[strlen(proj) + 29 + sizeof(version + 1)];
+			snprintf(vp, strlen(proj) + 29 + sizeof(version + 1), ".server_directory/%s/version%d", proj, version + 1);
+			mkdir(vp, 0777);
+			int copy_check = dir_copy(vers_path, vp, 0);
+			/* Make new copy of directory */
+			if (copy_check == 0) {
+				snprintf(to_send, 2, "g");
+				sent = send(client_sock, to_send, 2, 0);
+			}
+			else {
+				snprintf(to_send, 2, "b");
+				sent = send(client_sock, to_send, 2, 0);
+				free(to_send);
+				free(receiving);
+				close(fd_mani);
+				open(manifest_path, O_WRONLY | O_TRUNC);
+				write(fd_mani, mani, manifest_size);
+				remove_directory(vp);
+				fprintf(stderr, "ERROR: Failed to instantiate new version of project \"%s\".\n", proj);
+				close(fd_mani);
+				pthread_mutex_unlock(&context->lock);
+				pthread_exit(NULL);
+			}
+			/* Tokenizing .Commit's input */
+			int count = 0;
+			char* commit_token;
+			int i = 0, j = 0;
+			int last_sep = 0;
+			int tok_len = 0;
+			int len = strlen(commit_input);
+			int delete_check = 0, modify_check = 0;
+			char* fp = NULL;
+			for (i = 0; i < len; ++i) {
+				if (commit_input[i] != '\t' && commit_input[i] != '\n') {
+					++tok_len;
+					continue;
+				}
+				else {
+					commit_token = (char*)malloc(tok_len + 1);
+					for (j = 0; j < tok_len; ++j) {
+						commit_token[j] = commit_input[last_sep + j];
+					}
+					commit_token[tok_len] = '\0';
+					last_sep += tok_len + 1;
+					tok_len = 0;
+					++count;
+				}
+				if (count % 4 == 1) {
+					if (commit_token[0] == 'D') {
+						delete_check = 1;
+					} else if (commit_token[0] == 'M') {
+						modify_check = 1;
+					}
+					free(commit_token);
+				}
+				else if (count % 4 == 2) {
+					free(commit_token);
+				}
+				else if (count % 4 == 3) {
+					fp = (char*)malloc(strlen(commit_token) + 1);
+					strncpy(fp, commit_token, strlen(commit_token));
+					commit_token += strlen(proj);
+					int path_len = strlen(vp) + 1 + strlen(fp);
+					char new_fp[path_len + 1];
+					snprintf(new_fp, path_len, "%s/%s", vp, commit_token);
+					if (delete_check == 1) {
+						/* If D, get rid of file and mark it deleted in .Manifest */
+						remove(new_fp);
+						removeFile(fd_mani, fp, wr_man);
+						/* Have to update .Manifest input everytime new change is made */
+						int new_size = get_file_size(fd_mani);
+						free(wr_man);
+						wr_man = (char *) malloc(new_size + 1);
+						lseek(fd_mani, 0, 0);
+						int br = read(fd_mani, wr_man, new_size);
+						wr_man[br] = '\0';
+					}
+					else {
+						free(receiving);
+						/* Get input of files marked A or M from client and put it in respective files */
+						receiving = (char *) malloc(sizeof(int));
+						received = recv(client_sock, receiving, sizeof(int), 0);
+						if (receiving[0] == 'x') {
+							fprintf(stderr, "ERROR: Client could not send coneents of file.\n");
+							/* On failure, revert .Manifest to old version */
+							close(fd_mani);
+							fd_mani = open(manifest_path, O_WRONLY | O_TRUNC);
+							write(fd_mani, mani, manifest_size);
+							remove_directory(vp);
+							free(fp);
+							close(fd_mani);
+							pthread_mutex_unlock(&context->lock);
+							pthread_exit(NULL);
+						}
+						int file_size = atoi(receiving);
+						free(receiving);
+						receiving = (char*)malloc(file_size + 1);
+						received = recv(client_sock, receiving, file_size, 0);
+						while (received < file_size) {
+							int bytes_received = recv(client_sock, receiving + received, file_size, 0);
+							received += bytes_received;
+						}
+						create_dirs(new_fp, vp, 2);
+						int fd2;
+						if (modify_check) {
+							fd2 = open(new_fp, O_WRONLY | O_TRUNC);
+						}
+						else {
+							fd2 = open(new_fp, O_WRONLY | O_CREAT, 0777);
+						}
+						if (fd2 < 0) {
+							free(receiving);
+							snprintf(to_send, 2, "x");
+							sent = send(client_sock, to_send, 2, 0);
+							free(to_send);
+							fprintf(stderr, "ERROR: Failed to open \"%s\" file in project.\n", new_fp);
+							close(fd_mani);
+							fd_mani = open(manifest_path, O_RDWR | O_TRUNC);
+							write(fd_mani, mani, manifest_size);
+							close(fd_mani);
+							close(fd2);
+							pthread_mutex_unlock(&context->lock);
+							pthread_exit(NULL);
+						}
+						write(fd2, receiving, file_size);
+						snprintf(to_send, 2, "g");
+						sent = send(client_sock, to_send, 2, 0);
+						close(fd2);
+					}
+				}
+				else if (count % 4 == 0) {
+					if (!delete_check) {
+						/* Update .Manifest with new version or new entry */
+						add(fd_mani, commit_token, fp, wr_man, 1);
+						int new_size = get_file_size(fd_mani);
+						free(wr_man);
+						wr_man = (char *) malloc(new_size + 1);
+						lseek(fd_mani, 0, 0);
+						int br = read(fd_mani, wr_man, new_size);
+						wr_man[br] = '\0';
+						modify_check = 0;
+					} else {
+						delete_check = 0;
+					}
+					free(commit_token);
+					free(fp);
+				}
+			}
+			/* For loop finishes before last hash is recognized */
+			if (tok_len > 0 && !delete_check) {
+				commit_token = (char*)malloc(tok_len + 1);
+				for (i = 0; i < tok_len; ++i) {
+					commit_token[i] = commit_input[last_sep + i];
+				}
+				commit_token[tok_len] = '\0';
+				if (!delete_check) {
+					add(fd_mani, commit_token, fp, wr_man, 1);
+					int new_size = get_file_size(fd_mani);
+					free(wr_man);
+					wr_man = (char *) malloc(new_size + 1);
+					lseek(fd_mani, 0, 0);
+					int br = read(fd_mani, wr_man, new_size);
+					wr_man[br] = '\0';
+				}
+				free(commit_token);
+				free(fp);
+			}
+			/* Save current .Manifest in version-specific .Manifest, for rollback purposes */
+			char new_manifest_path[strlen(vp) + 11];
+			snprintf(new_manifest_path, strlen(vp) + 11, "%s/.Manifest", vp);
+			int fd_new_mani = open(new_manifest_path, O_CREAT | O_WRONLY, 0777);
+			write(fd_new_mani, wr_man, strlen(wr_man));
+			close(fd_new_mani);
+			close(fd_mani);
+			/* Record current .Commit to .History */
+			char history_path[strlen(proj) + 30];
+			snprintf(history_path, strlen(proj) + 31, ".server_directory/%s/.History", proj);
+			int hist_fd = open(history_path, O_WRONLY | O_APPEND);
+			write(hist_fd, "push\n", 5);
+			char temp[sizeof(version + 1) + 1];
+			snprintf(temp, sizeof(version + 1), "%d", version + 1);
+			write(hist_fd, temp, strlen(temp));
+			write(hist_fd, "\n", 1);
+			write(hist_fd, commit_input, strlen(commit_input));
+			write(hist_fd, "\n\n", 2);
+			close(hist_fd);
+			/* Create version-specific .Commit with same contents as client's .Commit ->
+			 * necessary for showing rollbacks in .History */
+			char new_cp[strlen(vp) + 10];
+			snprintf(new_cp, strlen(vp) + 10, "%s/.Commit", vp);
+			int cfd = open(new_cp, O_CREAT | O_WRONLY, 0777);
+			write(cfd, commit_input, strlen(commit_input));
+			close(cfd);
+			printf("Push complete!\n");
+			snprintf(to_send, 2, "g");
+			sent = send(client_sock, to_send, 2, 0);
+			free(receiving);
+			free(to_send);
+		}
+		// else if (token[0] == 'u') {
+		// 		/* UPDATE */
 		// }
 	}
 	if (!keep_running) {

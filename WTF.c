@@ -527,9 +527,270 @@ int main(int argc, char const *argv[]){
 			}
       close(commit_fd);
     }
-    // else if (strcmp(argv[1], "push") == 0) {
-    //   /* PUSH */
-    // }
+    else if (strcmp(argv[1], "push") == 0) {
+      /* PUSH */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = 3 + strlen(argv[2]);
+      char* to_send = (char*)malloc(send_size);
+      /* Check if .Update exists, is not empty, and contains an M code; if yes, fail*/
+      char update_path[strlen(argv[2]) + 9];
+      snprintf(update_path, strlen(argv[2]) + 9, "%s/.Update", argv[2]);
+      int update_fd = open(update_path, O_RDONLY);
+      if (update_fd >= 0) {
+        char temp[2];
+        int br = read(update_fd, temp, 1);
+        if (br > 0) {
+          lseek(update_fd, 0, 0);
+          int size = get_file_size(update_fd);
+          char update_input[size + 1];
+          br = read(update_fd, update_input, size);
+          update_input[br] = '\0';
+          char* update_tok = strtok(update_input, "\t\n");
+          while (update_tok != NULL) {
+            if (strcmp(update_tok, "M") == 0) {
+              snprintf(to_send, send_size, "x");
+              sent = send(sockfd, to_send, 2, 0);
+              fprintf(stderr, "ERROR: Non-empty .Update exists locally for project \"%s\".\n", argv[2]);
+              free(to_send);
+              close(update_fd);
+              return EXIT_FAILURE;
+            }
+            update_tok = strtok(NULL, "\t\n");
+          }
+        }
+        close(update_fd);
+      }
+      snprintf(to_send, send_size, "p:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+      while (sent < send_size) {
+				int bytes_sent  = send(sockfd, to_send + sent, send_size, 0);
+				sent += bytes_sent;
+			}
+      char* receiving = (char *) malloc(2);
+      received = recv(sockfd, receiving, 2, 0);
+      if (receiving[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      /* Send .Commit to server */
+      char commit_path[strlen(argv[2]) + 9];
+      snprintf(commit_path, strlen(argv[2]) + 9, "%s/.Commit", argv[2]);
+      int fd_commit = open(commit_path, O_RDONLY);
+      if (fd_commit < 0) {
+				fprintf(stderr, "ERROR: Failed to open local .Commit for \"%s\" project.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      int size = get_file_size(fd_commit);
+      if (size == -1) {
+				fprintf(stderr, "ERROR: Failed to get size of local .Commit for \"%s\" project.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      /* Reading .Commit's input */
+      char commit_input[size + 1];
+      int bytes_read = read(fd_commit, commit_input, size);
+      commit_input[size] = '\0';
+      free(to_send);
+      send_size = sizeof(bytes_read);
+      to_send = (char*)malloc(send_size);
+      if (bytes_read == 0) {
+				fprintf(stderr, "ERROR: Empty .Commit for project \"%s\".\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      snprintf(to_send, send_size, "%d", bytes_read);
+      sent = send(sockfd, to_send, send_size, 0);
+      send_size = bytes_read;
+      free(to_send);
+      to_send = (char*)malloc(send_size);
+      snprintf(to_send, send_size, "%s", commit_input);
+      sent = send(sockfd, to_send, send_size, 0);
+      received = recv(sockfd, receiving, 1, 0);
+      /* Check whether server could find matching .Commit */
+      if (receiving[0] == 'x') {
+				fprintf(stderr, "ERROR: Server failed during .Commit lookup for project \"%s\".\n", argv[2]);
+				remove(commit_path);
+				return EXIT_FAILURE;
+			}
+      else if (receiving[0] == 'b') {
+				fprintf(stderr, "ERROR: Matching .Commit could not be found on server's copy of \"%s\".\n", argv[2]);
+				remove(commit_path);
+				return EXIT_FAILURE;
+			}
+      received = recv(sockfd, receiving, 1, 0);
+      if (receiving[0] == 'x') {
+				fprintf(stderr, "ERROR: Server could not open its .Manifest for project \"%s\".\n", argv[2]);
+			}
+      else if (receiving[0] == 'g') {
+				printf("Server initializing new version of project \"%s\".\n", argv[2]);
+			}
+      received = recv(sockfd, receiving, 2, 0);
+      if (receiving[0] == 'b') {
+				fprintf(stderr, "ERROR: Server could not instantiate new version of project \"%s\".\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      /* Open .Manifest */
+      char manifest_path[strlen(argv[2]) + 11];
+      snprintf(manifest_path, strlen(argv[2]) + 11, "%s/.Manifest", argv[2]);
+      int fd_mani = open(manifest_path, O_RDONLY);
+      int manifest_size = get_file_size(fd_mani);
+      if (fd_mani < 0 || manifest_size < 0) {
+				free(to_send);
+				to_send = (char*)malloc(2);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+			}
+      char buff[manifest_size + 1];
+      bytes_read = read(fd_mani, buff, manifest_size);
+      /* Same process as server: create copy of current .Manifest and version with updated version number
+			* Implement new .Manifest immediately, but if failure, return old .Manifest */
+      char mani[manifest_size + 1];
+      char* mani_buff = (char*)malloc(manifest_size + 1);
+      strncpy(mani, buff, bytes_read);
+      strncpy(mani_buff, buff, bytes_read);
+      char* mani_tok = strtok(buff, "\n");
+      int mani_vers = atoi(mani_tok);
+      mani_buff += strlen(mani_tok) + 1;
+      char* wr_man = malloc(strlen(mani_buff) + 2 + sizeof(mani_vers + 1));
+      snprintf(wr_man, strlen(mani_buff) + 2 + sizeof(mani_vers + 1), "%d\n%s", mani_vers + 1, mani_buff);
+      close(fd_mani);
+      fd_mani = open(manifest_path, O_RDWR | O_TRUNC);
+      write(fd_mani, wr_man, strlen(wr_man));
+      /* Tokenize .Commit and make changes to local .Manifest */
+      int count = 0;
+      char* commit_token;
+      int i = 0, j = 0;
+      int last_sep = 0;
+      int tok_len = 0;
+      int len = strlen(commit_input);
+      int delete_check = 0;
+      char* p = NULL;
+      for (i = 0; i < len; ++i) {
+        if (commit_input[i] != '\t' && commit_input[i] != '\n') {
+					++tok_len;
+					continue;
+				}
+        else {
+          commit_token = (char*)malloc(tok_len + 1);
+					for (j = 0; j < tok_len; ++j) {
+						commit_token[j] = commit_input[last_sep + j];
+					}
+					commit_token[tok_len] = '\0';
+					last_sep += tok_len + 1;
+					tok_len = 0;
+					++count;
+        }
+        if (count % 4 == 1) {
+					if (commit_token[0] == 'D') {
+						delete_check = 1;
+					}
+					free(commit_token);
+				}
+        else if (count % 4 == 2) {
+					free(commit_token);
+				}
+        else if (count % 4 == 3) {
+          if (!delete_check) {
+            free(to_send);
+            p = (char *) malloc(strlen(commit_token) + 1);
+            strncpy(p, commit_token, strlen(commit_token));
+            int file = open(commit_token, O_RDONLY);
+            int file_size = get_file_size(file);
+            if (file < 0 || file_size < 0) {
+              to_send = (char*)malloc(2);
+							snprintf(to_send, 2, "x");
+							sent = send(sockfd, to_send, 2, 0);
+							close(fd_mani);
+							fd_mani = open(manifest_path, O_WRONLY | O_TRUNC);
+              /* Failure: Revert to old .Manifest */
+              write(fd_mani, mani, manifest_size);
+              close(fd_mani);
+              remove(commit_path);
+              close(file);
+              free(p);
+              free(commit_token);
+              return EXIT_FAILURE;
+            }
+            send_size = sizeof(file_size);
+            to_send = (char *) malloc(send_size);
+            snprintf(to_send, send_size, "%d", file_size);
+            sent = send(sockfd, to_send, send_size, 0);
+            free(to_send);
+            send_size = file_size;
+            to_send = (char*)malloc(send_size);
+            read(file, to_send, send_size);
+            sent = send(sockfd, to_send, send_size, 0);
+            while (sent < file_size) {
+							int bytes_sent = send(sockfd, to_send + sent, send_size, 0);
+							sent += bytes_sent;
+						}
+            received = recv(sockfd, receiving, 2, 0);
+            if (receiving[0] == 'x') {
+              fprintf(stderr, "ERROR: Server could not open new copy of \"%s\" in project \"%s\".\n", commit_token, argv[2]);
+							close(fd_mani);
+              fd_mani = open(manifest_path, O_WRONLY | O_TRUNC);
+              write(fd_mani, mani, manifest_size);
+							close(fd_mani);
+							free(p);
+							remove(commit_path);
+							close(file);
+							free(commit_token);
+							return EXIT_FAILURE;
+            }
+            close(file);
+            free(commit_token);
+          }
+        }
+        else if (count % 4 == 0) {
+          /* For loop finishes before looking at last hash */
+          char hashed[strlen(commit_token) + 1];
+          strcpy(hashed, commit_token);
+          hashed[strlen(commit_token)] = '\0';
+          if (!delete_check) {
+            add(fd_mani, hashed, p, wr_man, 1);
+            int new_size = get_file_size(fd_mani);
+            free(wr_man);
+            wr_man = (char*)malloc(new_size + 1);
+            lseek(fd_mani, 0, 0);
+            int br = read(fd_mani, wr_man, new_size);
+            wr_man[br] = '\0';
+          }
+          else {
+            delete_check = 0;
+          }
+          free(commit_token);
+          free(p);
+        }
+      }
+      if (tok_len > 0) {
+        commit_token = (char*)malloc(tok_len + 1);
+        for (i = 0; i < tok_len; ++i) {
+					commit_token[i] = commit_input[last_sep + i];
+				}
+        commit_token[tok_len] = '\0';
+        if (!delete_check) {
+					add(fd_mani, commit_token, p, wr_man, 1);
+      	}
+        free(commit_token);
+      }
+      received = recv(sockfd, receiving, 2, 0);
+      if (receiving[0] == 'g') {
+				printf("Push succeeded!\n");
+				remove(commit_path);
+			}
+      else {
+        printf("Push failed.\n");
+				remove(commit_path);
+      }
+    }
+    // else if (strcmp(argv[1], "update") == 0) {
+    //   /* UPDATE */
+    // } 
   }
   return 0;
 }

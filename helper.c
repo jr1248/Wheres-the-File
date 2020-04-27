@@ -370,3 +370,165 @@ int delete_commits(char *proj_path, char *name) {
 	closedir(dir);
 	return 0;
 }
+
+/* Copy src directory into dest directory recursively */
+int dir_copy(char *src, char *dest, int flag) {
+	DIR *dir;
+	struct dirent *de;
+	if ((dir = opendir(src)) == NULL) {
+		fprintf(stderr, "ERROR: Cannot open directory \"%s\".\n", src);
+		closedir(dir);
+		return -1;
+	}
+	while ((de = readdir(dir)) != NULL) {
+		/* Skip self and parent directory */
+		if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+			continue;
+		}
+		if (flag && (strstr(de->d_name, ".Manifest") != NULL || strstr(de->d_name, ".Commit") != NULL || strstr(de->d_name, ".History") != NULL)) {
+			continue;
+		}
+		char *new_src_path = (char *) malloc(strlen(src) + strlen(de->d_name) + 2);
+		char *new_dest_path = (char *) malloc(strlen(dest) + strlen(de->d_name) + 2);
+		snprintf(new_src_path, strlen(src) + strlen(de->d_name) + 2, "%s/%s", src, de->d_name);
+		snprintf(new_dest_path, strlen(dest) + strlen(de->d_name) + 2, "%s/%s", dest, de->d_name);
+		/* If de is a directory, create a new matching one in dest and fill it recursively */
+		if (de->d_type == DT_DIR) {
+			mkdir(new_dest_path, 0777);
+			if (dir_copy(new_src_path, new_dest_path, flag) != 0) {
+				return -1;
+			} else {
+				return 0;
+			}
+		} else {
+			/* Otherwise, just copy src's file's contents into newly created dest's file */
+			int fd_src_file = open(new_src_path, O_RDONLY);
+			if (fd_src_file < 0) {
+				fprintf(stderr, "ERROR: Cannot open file \"%s\".\n", new_src_path);
+				close(fd_src_file);
+				closedir(dir);
+				return -1;
+			}
+			int fd_dest_file = open(new_dest_path, O_CREAT | O_WRONLY, 0777);
+			if (fd_dest_file < 0) {
+				fprintf(stderr, "ERROR: Cannot create file \"%s\".\n", new_dest_path);
+				close(fd_dest_file);
+				close(fd_src_file);
+				closedir(dir);
+				return -1;
+			}
+			int size = get_file_size(fd_src_file);
+			if (size < 0) {
+				fprintf(stderr, "ERROR: Cannot get size of file \"%s\".\n", new_src_path);
+				close(fd_dest_file);
+				close(fd_src_file);
+				closedir(dir);
+				return -1;
+			}
+			char input[size + 1];
+			read(fd_src_file, input, size);
+			input[size] = '\0';
+			write(fd_dest_file, input, size);
+			close(fd_dest_file);
+			close(fd_src_file);
+		}
+		free(new_src_path);
+		free(new_dest_path);
+	}
+	closedir(dir);
+	return 0;
+}
+
+int create_dirs(char *file_path, char *parent, int flag) {
+	char *path_token;
+	char *prev_token = (char *) malloc(strlen(parent) + 2);
+	snprintf(prev_token, strlen(parent) + 2, "%s/", parent);
+	char *save_token = (char *) malloc(strlen(parent) + 2);
+	int j = 0, k = 0;
+	int last_sep = 0;
+	int token_len = 0;
+	int len = strlen(file_path);
+	int count = 0;
+	for (j = 0; j < len; ++j) {
+		if (file_path[j] != '/') {
+			++token_len;
+			continue;
+		} else {
+			path_token = (char *) malloc(token_len + 1);
+			for (k = 0; k < token_len; ++k) {
+				path_token[k] = file_path[last_sep + k];
+			}
+			path_token[token_len] = '\0';
+			last_sep += token_len + 1;
+			token_len = 0;
+			++count;
+			if (count <= 1 + flag) {
+				free(path_token);
+				continue;
+			}
+		}
+		free(save_token);
+		save_token = (char *) malloc(strlen(prev_token) + 1);
+		strcpy(save_token, prev_token);
+		save_token[strlen(prev_token)] = '\0';
+		free(prev_token);
+		prev_token = (char *) malloc(strlen(save_token) + strlen(path_token) + 2);
+		snprintf(prev_token, strlen(save_token) + strlen(path_token) + 2, "%s%s/", save_token, path_token);
+		if (exists(prev_token) == -1) {
+			mkdir(prev_token, 0777);
+		}
+		free(path_token);
+	}
+	return 0;
+}
+
+/* Check if .Commit given from client matches any on server */
+int push_check(char *proj, char *commit_input) {
+	char p[20 + strlen(proj)];
+	snprintf(p, strlen(proj) + 20, ".server_directory/%s/", proj);
+	DIR *dir;
+	if (!(dir = opendir(p))) {
+		fprintf(stderr, "ERROR: Could not open project \"%s\" on server.\n", proj);
+		closedir(dir);
+		return -1;
+	}
+	struct dirent *de;
+	while ((de = readdir(dir)) != NULL) {
+		/* Check if file's name contains .Commit */
+		if (strstr(de->d_name, ".Commit") != NULL) {
+			char *commit_path = (char *) malloc(strlen(p) + strlen(de->d_name) + 1);
+			snprintf(commit_path, strlen(p) + strlen(de->d_name) + 1, "%s%s", p, de->d_name);
+			int commit_fd = open(commit_path, O_RDONLY);
+			if (commit_fd < 0) {
+				free(commit_path);
+				continue;
+			}
+			int size = get_file_size(commit_fd);
+			if (size <= 0) {
+				free(commit_path);
+				continue;
+			}
+			/* Get input of file */
+			char input[size + 1];
+			int bytes_read = read(commit_fd, input, size);
+			input[size] = '\0';
+			input[size - 1] = '\0';
+			/* Check if file's input matches given .Commit's */
+			if (strcmp(input, commit_input) == 0) {
+				free(commit_path);
+				close(commit_fd);
+				char name[strlen(de->d_name) + 1];
+				strcpy(name, de->d_name);
+				name[strlen(de->d_name)] = '\0';
+				closedir(dir);
+				/* Delete all other .Commits */
+				int ret = delete_commits(p, name);
+				return ret;
+			}
+			close(commit_fd);
+			free(commit_path);
+		}
+	}
+	closedir(dir);
+	return 1;
+}
