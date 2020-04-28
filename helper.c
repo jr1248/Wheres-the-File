@@ -227,8 +227,8 @@ int commit_helper(int version, char* path, char* hash, char* other_manifest) {
 
 /* Parse through client's .Manifest and use commit_helper() to determine if there are any differences
  * between client's .Manifest and server's */
-int commit(int commit_fd, char* client_manifest, char* server_manifest) {
-	int len = strlen(client_manifest);
+int commit(int commit_fd, char* client_manifestfest, char* smfest) {
+	int len = strlen(client_manifestfest);
 
 	int i = 0, j = 0;
 	char* tok;
@@ -242,14 +242,14 @@ int commit(int commit_fd, char* client_manifest, char* server_manifest) {
 	int delete_check = 0;
 	for (i = 0; i < len; ++i) {
 		/* Tokenize by creating a new token whenever whitespace is encountered */
-		if (client_manifest[i] != '\t' && client_manifest[i] != '\n') {
+		if (client_manifestfest[i] != '\t' && client_manifestfest[i] != '\n') {
 			++tok_len;
 			continue;
 		}
 		else {
 			tok = (char*)malloc(tok_len + 1);
 			for (j = 0; j < tok_len; ++j) {
-				tok[j] = client_manifest[last_sep + j];
+				tok[j] = client_manifestfest[last_sep + j];
 			}
 			tok[tok_len] = '\0';
 			last_sep += tok_len + 1;
@@ -303,10 +303,10 @@ int commit(int commit_fd, char* client_manifest, char* server_manifest) {
 				/* Run commit_helper() to see if file was removed from .Manifest already */
 				delete_check = 0;
 				strcpy(hashed, dashes);
-				commit_check = commit_helper(version - 1, path, dashes, server_manifest);
+				commit_check = commit_helper(version - 1, path, dashes, smfest);
 			}
 			else {
-				commit_check = commit_helper(version - 1, path, hashed, server_manifest);
+				commit_check = commit_helper(version - 1, path, hashed, smfest);
 			}
 			if (commit_check == -1) {
 				return -1;
@@ -531,4 +531,267 @@ int push_check(char *proj, char *commit_input) {
 	}
 	closedir(dir);
 	return 1;
+}
+
+int update_helper(char* manifest, int cv, int sv, char *hash, int fv, char* fc) {
+	int count = -1;
+	char* manifest_token;
+	int i = 0, j = 0;
+	int last_sep = 0;
+	int tok_len = 0;
+	int len = strlen(manifest);
+	int version = 0;
+	char* file_path = NULL;
+	int check = 0;
+	for (i = 0; i < len; ++i) {
+		if (manifest[i] != '\t' && manifest[i] != '\n') {
+			++tok_len;
+			continue;
+		} else {
+			manifest_token = (char *) malloc(tok_len + 1);
+			for (j = 0; j < tok_len; ++j) {
+					manifest_token[j] = manifest[last_sep + j];
+				}
+			manifest_token[tok_len] = '\0';
+			last_sep += tok_len + 1;
+			tok_len = 0;
+			++count;
+		}
+		if (count == 0) {
+			free(manifest_token);
+			continue;
+		}
+		if (count % 3 == 1) {
+			version = atoi(manifest_token);
+			free(manifest_token);
+		} else if (count % 3 == 2) {
+			if (strcmp(fc, manifest_token) == 0) {
+				check = 1;
+			}
+			free(manifest_token);
+		} else if (count % 3 == 0) {
+			if (check == 1) {
+				if (strcmp(hash, dashes) == 0 && strcmp(manifest_token, dashes) == 0) {
+					return 5;
+				} else if (strcmp(hash, dashes) == 0 && strcmp(manifest_token, dashes) != 0 && cv != sv) {
+					return 3;
+				} else if (strcmp(hash, dashes) != 0 && strcmp(manifest_token, dashes) == 0) {
+					if (cv == sv) {
+						return 4;
+					} else {
+						return 1;
+					}
+				} else if (strcmp(hash, manifest_token) == 0 && fv != version && cv != sv) {
+					free(manifest_token);
+					return 2;
+				} else if (strcmp(hash, manifest_token) != 0 && cv == sv) {
+					free(manifest_token);
+					return 1;
+				} else if (strcmp(hash, manifest_token) != 0 && cv != sv && fv != version) {
+					free(manifest_token);
+					return -1;
+				}
+				free(manifest_token);
+				break;
+			}
+		}
+	}
+	/* Repeat for final token missed by for loop */
+	if (check == 1 && tok_len > 0) {
+		manifest_token = (char *) malloc(tok_len + 1);
+		for (i = 0; i < tok_len; ++i) {
+			manifest_token[i] = manifest[last_sep + 1];
+		}
+		manifest_token[tok_len] = '\0';
+		if (strcmp(hash, dashes) == 0 && strcmp(manifest_token, dashes) == 0) {
+				return 5;
+		} else if (strcmp(hash, dashes) == 0 && strcmp(manifest_token, dashes) != 0 && cv != sv) {
+				return 3;
+		} else if (strcmp(hash, dashes) != 0 && strcmp(manifest_token, dashes) == 0) {
+			if (cv == sv) {
+				return 4;
+			} else {
+				return 1;
+			}
+		} else if (strcmp(hash, manifest_token) == 0 && fv != version && cv != sv) {
+			free(manifest_token);
+			return 2;
+		} else if (strcmp(hash, manifest_token) != 0 && cv == sv) {
+			free(manifest_token);
+			return 1;
+		} else if (strcmp(hash, manifest_token) != 0 && cv != sv && fv != version) {
+			free(manifest_token);
+			return -1;
+		}
+	}
+	if (cv == sv) {
+		return 1;
+	} else {
+		return 4;
+	}
+}
+
+/* Fill .Update with the help of update_helper() */
+int update(int update_fd, char* client_manifest, char* sm, int cv, int sv) {
+	/* Tokenize client's .Manifest */
+	int count = -1;
+	char* manifest_token = NULL;
+	int i = 0, j = 0;
+	int last_sep = 0;
+	int tok_len = 0;
+	int len = strlen(client_manifest);
+	int version = 0;
+	int res = 1;
+	char hashed[SHA256_DIGEST_LENGTH * 2 + 1];
+	char* p = NULL;
+	for (i = 0; i < len; ++i) {
+		if (client_manifest[i] != '\t' && client_manifest[i] != '\n') {
+				++tok_len;
+				continue;
+		} else {
+			if (manifest_token != NULL) {
+				free(manifest_token);
+			}
+			manifest_token = (char *) malloc(tok_len + 1);
+			for (j = 0; j < tok_len; ++j) {
+				manifest_token[j] = client_manifest[last_sep + j];
+			}
+			manifest_token[tok_len] = '\0';
+			last_sep += tok_len + 1;
+			tok_len = 0;
+			++count;
+		}
+
+		/* First token will always be the .Manifest version number, which is already given in args */
+		if (count == 0) {
+			continue;
+		}
+		if (count % 3 == 1) {
+			/* File version */
+			version = atoi(manifest_token);
+		} else if (count % 3 == 2) {
+			/* Path */
+			int fd = open(manifest_token, O_RDONLY);
+			int size = get_file_size(fd);
+			if (fd < 0 || size < 0) {
+				fprintf(stderr, "Cannot read \"%s\".", manifest_token);
+				return -1;
+			}
+			char buff[size + 1];
+			read(fd, buff, size);
+			buff[size] = '\0';
+			/* Get hash too */
+			unsigned char hash[SHA256_DIGEST_LENGTH];
+			SHA256(buff, strlen(buff), hash);
+			int k = 0;
+			for (k = 0; k < SHA256_DIGEST_LENGTH; ++k) {
+				sprintf(hashed + (k * 2), "%02x", hash[k]);
+			}
+			hashed[SHA256_DIGEST_LENGTH * 2] = '\0';
+			p = (char*)malloc(strlen(manifest_token) + 1);
+			strcpy(p, manifest_token);
+			p[strlen(manifest_token)] = '\0';
+			close(fd);
+		} else if (count != 0) {
+			int update_check = 0;
+			/* Check if file was already deleted in server */
+			if (strcmp(manifest_token, dashes) == 0) {
+				update_check = update_helper(sm, cv, sv, dashes, version, p);
+			} else {
+				/* Or just do a regular check */
+				update_check = update_helper(sm, cv, sv, hashed, version, p);
+			}
+			/* If conflict, stop printing anything else and report conflict */
+			if (update_check == -1) {
+				res = 0;
+				printf("CONFLICT: %s\n", p);
+			}
+			if (res) {
+				/* Skip any U codes */
+				if (update_check == 2) {
+					write(update_fd, "M\t", 2);
+					printf("M\t");
+				} else if (update_check == 3) {
+					write(update_fd, "A\t", 2);
+					printf("A\t");
+				} else if (update_check == 4) {
+					write(update_fd, "D\t", 2);
+					printf("D\t");
+				}
+ 				if (update_check > 1 && update_check < 5) {
+					char vers[sizeof(version) + 1];
+					snprintf(vers, sizeof(version), "%d", version);
+					vers[sizeof(version)] = '\0';
+					write(update_fd, vers, strlen(vers));
+					write(update_fd, "\t", 1);
+					write(update_fd, p, strlen(p));
+					write(update_fd, "\t", 1);
+					write(update_fd, hashed, strlen(hashed));
+					write(update_fd, "\n", 1);
+					printf("%d\t%s\t%s\n", version, p, hashed);
+				}
+			}
+			free(p);
+		}
+	}
+	/* Also need to check for files that are on server that just aren't on client's .Manifest at all, even as removed */
+	if (res) {
+		count = -1;
+		manifest_token = NULL;
+		last_sep = 0;
+		tok_len = 0;
+		len = strlen(sm);
+		version = 0;
+		p = NULL;
+		for (i = 0; i < len; ++i) {
+			if (sm[i] != '\t' && sm[i] != '\n') {
+					++tok_len;
+					continue;
+			} else {
+				manifest_token = (char *) malloc(tok_len + 1);
+				for (j = 0; j < tok_len; ++j) {
+					manifest_token[j] = sm[last_sep + j];
+				}
+				manifest_token[tok_len] = '\0';
+				last_sep += tok_len + 1;
+				tok_len = 0;
+				++count;
+			}
+			/* First token will always be the .Manifest version number, which is already given in args */
+			if (count == 0) {
+				free(manifest_token);
+				continue;
+			}
+			if (count % 3 == 1) {
+			/* File version */
+				version = atoi(manifest_token);
+			} else if (count % 3 == 2) {
+			/* Path */
+				p = (char *) malloc(strlen(manifest_token) + 1);
+				strcpy(p, manifest_token);
+				p[strlen(manifest_token)] = '\0';
+				free(manifest_token);
+			} else {
+				int update_check = update_helper(client_manifest, cv, sv, manifest_token, version, p);
+				/* Only need to check for code 4: path not found in other mani and versions different */
+				if (strcmp(manifest_token, dashes) != 0 && update_check == 4) {
+					write(update_fd, "A\t", 2);
+					printf("A\t");
+					char vers[sizeof(version) + 1];
+					snprintf(vers, sizeof(version), "%d", version);
+					vers[sizeof(version)] = '\0';
+					write(update_fd, vers, strlen(vers));
+					write(update_fd, "\t", 1);
+					write(update_fd, p, strlen(p));
+					write(update_fd, "\t", 1);
+					write(update_fd, manifest_token, strlen(manifest_token));
+					write(update_fd, "\n", 1);
+					printf("%d\t%s\t%s\n", version, p, manifest_token);
+				}
+				free(manifest_token);
+				free(p);
+			}
+		}
+	}
+	return res;
 }

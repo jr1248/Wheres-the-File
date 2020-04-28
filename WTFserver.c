@@ -752,10 +752,240 @@ void *thread_handler(void *args) {
 			free(receiving);
 			free(to_send);
 		}
-		// else if (token[0] == 'u') {
-		// 		/* UPDATE */
-		// }
+		else if (token[0] == 'g') {
+				/* UPGRADE */
+				token = strtok(NULL, ":");
+				char* project_path = (char*)malloc(strlen(token) + 22);
+				snprintf(project_path, strlen(token) + 22, ".server_directory/%s", token);
+				if (exists(project_path) == -1) {
+					char sending[2] = "b";
+					sent = send(client_sock, sending, 2, 0);
+					fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", token);
+					free(project_path);
+					pthread_mutex_unlock(&context->lock);
+					pthread_exit(NULL);
+				}
+				free(project_path);
+				char* to_send = (char*)malloc(2);
+				snprintf(to_send, 2, "g");
+				sent = send(client_sock, to_send, 2, 0);
+				/* Get .Update from client */
+				char* rcvg = (char *) malloc(sizeof(int) + 1);
+				received = recv(client_sock, rcvg, sizeof(int), 0);
+				rcvg[received] = '\0';
+				if (rcvg[0] == 'x') {
+					fprintf(stderr, "ERROR: Client could not open local .Update for project \"%s\".\n", token);
+					free(rcvg);
+					free(to_send);
+					pthread_mutex_unlock(&context->lock);
+					pthread_exit(NULL);
+				} else if (rcvg[0] == 'b') {
+					fprintf(stderr, "ERROR: Nothing to update for project \"%s\".\n", token);
+					free(rcvg);
+					free(to_send);
+					pthread_mutex_unlock(&context->lock);
+					pthread_exit(NULL);
+				}
+				int update_size = atoi(rcvg);
+				free(rcvg);
+				rcvg = (char*)malloc(update_size + 1);
+				received = recv(client_sock, rcvg, update_size, 0);
+				while (received < update_size) {
+					int bytes_read = recv(client_sock, rcvg + received, update_size, 0);
+					received += bytes_read;
+				}
+				rcvg[received] = '\0';
+				char update_input[received + 1];
+				strcpy(update_input, rcvg);
+				update_input[received] = '\0';
+				/* Open .Manifest */
+				char manifest_path[strlen(token) + 30];
+				snprintf(manifest_path, strlen(token) + 30, ".server_directory/%s/.Manifest", token);
+				int mani_fd = open(manifest_path, O_RDONLY);
+				int manifest_size = get_file_size(mani_fd);
+				if (mani_fd < 0 || manifest_size < 0) {
+					fprintf(stderr, "ERROR: Cannot open .Manifest for project \"%s\".\n", token);
+					free(rcvg);
+					snprintf(to_send, 2, "m");
+					sent = send(client_sock, to_send, 2, 0);
+					free(to_send);
+					close(mani_fd);
+					pthread_mutex_unlock(&context->lock);
+					pthread_exit(NULL);
+				}
+				char manifest_input[manifest_size + 1];
+				int bytes_read = read(mani_fd, manifest_input, manifest_size);
+				close(mani_fd);
+				manifest_input[bytes_read] = '\0';
+				char manifest_version[manifest_size + 1];
+				strcpy(manifest_version, manifest_input);
+				char* vers_tok = strtok(manifest_version, "\n");
+				int v = atoi(vers_tok);
+				char version_path[sizeof(v) + strlen(token) + 28];
+				snprintf(version_path, sizeof(v) + strlen(token) + 28, ".server_directory/%s/version%d/", token, v);
+
+				int count = 0;
+				char* update_tok;
+				int i = 0, j = 0;
+				int last_sep = 0;
+				int tok_len = 0;
+				int len = strlen(update_input);
+				int delete_check = 0;
+				char* p = NULL;
+				for (int i = 0; i < len; ++i) {
+					if (update_input[i] != '\t' && update_input[i] != '\n') {
+						++tok_len;
+						continue;
+				}
+				else {
+					update_tok = (char*)malloc(tok_len + 1);
+					for (j = 0; j < tok_len; ++j) {
+						update_tok[j] = update_input[last_sep + j];
+					}
+					update_tok[tok_len] = '\0';
+					last_sep += tok_len + 1;
+					tok_len = 0;
+					++count;
+				}
+				if (count % 4 == 1) {
+					if (update_tok[0] == 'D') {
+						delete_check = 1;
+					}
+					free(update_tok);
+				}
+				else if (count % 4 == 2) {
+					free(update_tok);
+				}
+				else if (count % 4 == 3) {
+					p = (char *) malloc(strlen(update_tok) + 1);
+					strcpy(p, update_tok);
+					p[strlen(update_tok)] = '\0';
+					update_tok += strlen(token);
+					if (token[strlen(token) + 1] == '/') {
+						++update_tok;
+					}
+					char fpath[strlen(update_tok) + strlen(version_path) + 1];
+					snprintf(fpath, strlen(update_tok) + strlen(version_path) + 1, "%s%s", version_path, update_tok);
+					if (delete_check) {
+						free(update_tok);
+					}
+					else {
+						int fd = open(fpath, O_RDONLY);
+						int file_size = get_file_size(fd);
+						if (fd < 0 || file_size < 0) {
+							fprintf(stderr, "ERROR: Unable to open \"%s\".\n", fpath);
+							snprintf(to_send, 2, "x");
+							sent = send(client_sock, to_send, 2, 0);
+							free(to_send);
+							free(rvcg);
+							close(fd);
+							close(mani_fd);
+							pthread_mutex_unlock(&context->lock);
+							pthread_exit(NULL);
+						}
+						free(to_send);
+						to_send = (char*)malloc(sizeof(file_size) + 1);
+						snprintf(to_send, sizeof(file_size) + 1, "%d", file_size);
+						to_send[sizeof(file_size)] = '\0';
+						/* Sending size */
+						sent = send(client_sock, to_send, sizeof(file_size),0);
+						free(to_send);
+						to_send = (char *) malloc(file_size + 1);
+						int br = read(fd, to_send, file_size);
+						to_send[br] = '\0';
+
+						sent = send(client_sock, to_send, file_size, 0);
+						close(fd);
+						free(rcvg);
+						rcvg = (char*)malloc(2);
+						received = recv(client_sock, rcvg, 1, 0);
+						if (rcvg[0] == 'x') {
+							fprintf(stderr, "ERROR: Client failed to upgrade.\n");
+							free(to_send);
+							free(rcvg);
+							free(update_tok);
+							pthread_mutex_unlock(&context->lock);
+							pthread_exit(NULL);
+						}
+					}
+				}
+				else {
+					free(update_token);
+				}
+		}
+		free(to_send);
+		to_send = (char*)malloc(sizeof(int));
+		snprintf(to_send, sizeof(int), "%d", manifest_size);
+		sent = send(client_sock, to_send, sizeof(int), 0);
+		free(to_send);
+		to_send = (char *) malloc(strlen(manifest_input) + 1);
+		strcpy(to_send, manifest_input);
+		to_send[strlen(manifest_input)] = '\0';
+		sent = send(client_sock, to_send, manifest_size, 0);
+		while (sent < manifest_size) {
+			int bytes_sent = send(client_sock, to_send + sent, manifest_size, 0);
+			sent += bytes_sent;
+		}
+		received = recv(client_sock, rcvg, 2, 0);
+		if (rcvg[0] == 'g') {
+			printf("Upgrade successful!\n");
+		} else {
+			printf("Upgrade failed.\n");
+		}
+		close(mani_fd);
+		free(to_send);
+		free(rcvg);
 	}
+	else if (token[0] == 'u') {
+		/* UPDATE */
+		token = strtok(NULL, ":");
+		char* project_path = (char*)malloc(strlen(token) + 22);
+		snprintf(project_path, strlen(token) + 22, ".server_directory/%s", token);
+		if (exists(project_path) == -1) {
+			char sending[2] = "b";
+			sent = send(client_sock, sending, 2, 0);
+			free(project_path);
+			fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", token);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		free(project_path);
+		/* Send client server's .Manifest */
+		char* manifest_path = (char*)malloc(strlen(token) + 31);
+		snprintf(manifest_path, strlen(token) + 31, ".server_directory/%s/.Manifest", token);
+		char* to_send = (char*)malloc(2);
+		int mani_fd = open(manifest_path, O_RDONLY);
+		int manifest_size = get_file_size(mani_fd);
+		if (mani_fd < 0 || manifest_size < 0) {
+			fprintf(stderr, "ERROR: Unable to open .Manifest for project \"%s\".\n", token);
+			free(manifest_path);
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			close(mani_fd);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		int send_size = sizeof(manifest_size);
+		free(to_send);
+		to_send = (char*)malloc(send_size + 1);
+		snprintf(to_send, send_size, "%d", manifest_size);
+		sent = send(client_sock, to_send, send_size, 0);
+		free(to_send);
+		send_size = manifest_size;
+		to_send = (char*)malloc(send_size + 1);
+		int br = read(mani_fd, to_send, send_size);
+		sent = send(client_sock, to_send, br, 0);
+		while (sent < br) {
+			int bs = send(client_sock, to_send + sent, br, 0);
+			sent += bs;
+		}
+		printf("Sent .Manifest for project \"%s\" to client.\n", token);
+		close(mani_fd);
+	}
+	// else if (token[0] == 'r') {
+	// 	/* ROLLBACK */
+	//
+	// }
 	if (!keep_running) {
 		printf("Server closed.\n");
 	}

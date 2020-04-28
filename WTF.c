@@ -788,9 +788,309 @@ int main(int argc, char const *argv[]){
 				remove(commit_path);
       }
     }
-    // else if (strcmp(argv[1], "update") == 0) {
-    //   /* UPDATE */
-    // } 
+    else if (strcmp(argv[1], "upgrade") == 0) {
+      /* UPGRADE */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = 3 + strlen(argv[2]);
+      char* to_send = (char*)malloc(send_size);
+      snprintf(to_send, send_size, "g:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+      char* rcvg = (char *) malloc(2);
+      received = recv(sockfd, rcvg, 2, 0);
+      if (rcvg[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      /* Open local .Update */
+      char* update_path = (char*)malloc(strlen(argv[2]) + 9);
+      snprintf(update_path, strlen(argv[2]) + 9, "%s/.Update", argv[2]);
+      int update_fd = open(update_path, O_RDWR);
+      int update_size = get_file_size(update_fd);
+      if (update_fd < 0 || update_size < 0) {
+				fprintf(stderr, "ERROR: Could not open or create .Update for project \"%s\". Please perform an update first.\n", argv[2]);
+				free(to_send);
+				to_send = (char*)malloc(2);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+        free(rcvg);
+				free(update_path);
+				close(update_fd);
+				return EXIT_FAILURE;
+			}
+      if (update_size == 0) {
+				printf(".Update is empty, project \"%s\" up-to-date.\n", argv[2]);
+				free(to_send);
+				to_send = (char*)malloc(2);
+				snprintf(to_send, 2, "b");
+				sent = send(sockfd, to_send, 2, 0);
+				free(rcvg);
+				free(update_path);
+				free(to_send);
+				close(update_fd);
+			}
+      free(to_send);
+      /* Send .Update to server */
+      send_size = sizeof(update_size);
+      to_send = (char*) malloc(send_size);
+      snprintf(to_send, send_size, "%d", update_size);
+      sent = send(sockfd, to_send, send_size, 0);
+			free(to_send);
+      send_size = update_size;
+      to_send = (char*)malloc(send_size + 1);
+			int bytes_read = read(update_fd, to_send, send_size);
+			to_send[bytes_read] = '\0';
+      sent = send(sockfd, to_send, send_size, 0);
+      while (sent < bytes_read) {
+				int bytes_sent = send(sockfd, to_send + sent, send_size, 0);
+				sent += bytes_sent;
+			}
+      char update_input[bytes_read + 1];
+			strcpy(update_input, to_send);
+			update_input[bytes_read] = '\0';
+			/* Tokenize .Update data */
+      int count = 0;
+      char* update_tok;
+      int i = 0, j = 0;
+      int last_sep = 0;
+      int tok_len = 0;
+      int len = strlen(update_input);
+      int delete_check = 0, modify_check = 0;
+      char* fpath = NULL;
+      for (i = 0; i < len; ++i) {
+        if (update_input[i] != '\t' && update_input[i] != '\n') {
+          ++tok_len;
+          continue;
+        }
+        else {
+          update_tok = (char*)malloc(tok_len + 1);
+					for (j = 0; j < tok_len; ++j) {
+						update_tok[j] = update_input[last_sep + j];
+					}
+					update_tok[tok_len] = '\0';
+					last_sep += tok_len + 1;
+					tok_len = 0;
+					++count;
+        }
+        if (count % 4 == 1) {
+          if (update_tok[0] == 'D') {
+						delete_check = 1;
+					} else if (update_tok[0] == 'M') {
+						modify_check = 1;
+					}
+					free(update_tok);
+        }
+        else if (count % 4 == 2) {
+					free(update_tok);
+				}
+        else if (count % 4 == 3) {
+          if (delete_check == 1) {
+						remove(update_tok);
+					}
+          else {
+            free(rcvg);
+						rcvg = (char*)malloc(sizeof(int));
+						received = recv(sockfd, rcvg, sizeof(int), 0);
+
+            /* For anything that was M code or A code, get file content's from server */
+            if (rcvg[0] == 'x') {
+							fprintf(stderr, "ERROR: Server could not send contents of \"%s\".\n", update_tok);
+							free(fpath);
+							free(update_tok);
+							close(update_fd);
+							return EXIT_FAILURE;
+						}
+            int fsize = atoi(rcvg);
+						free(rcvg);
+
+            rcvg = (char*)malloc(fsize + 1);
+            received = recv(sockfd, rcvg, fsize,0);
+						while (received < fsize) {
+							int br = recv(sockfd, rcvg + received, fsize, 0);
+							received += br;
+						}
+            rcvg[received] = '\0';
+            create_dirs(update_tok, argv[2], 0);
+            int file_fd;
+            if (modify_check) {
+							file_fd = open(update_tok, O_WRONLY | O_TRUNC);
+						} else {
+							file_fd = open(update_tok, O_WRONLY | O_CREAT, 0777);
+						}
+            if (file_fd < 0) {
+							free(rcvg);
+							snprintf(to_send, 1, "x");
+							sent = send(sockfd, to_send, 1, 0);
+							free(to_send);
+							fprintf(stderr, "ERROR: Failed to open \"%s\" file in project \"%s\".\n", update_tok, argv[2]);
+							free(update_tok);
+							close(file_fd);
+							close(update_fd);
+						}
+            write(file_fd, rcvg, strlen(rcvg));
+						close(file_fd);
+						snprintf(to_send, 2, "g");
+						sent = send(sockfd, to_send, 1, 0);
+						free(update_tok);
+          }
+        }
+        else {
+          free(update_tok);
+        }
+      }
+      close(update_fd);
+      remove(update_path);
+			free(rcvg);
+			rcvg = (char*)malloc(sizeof(int) + 1);
+			received = recv(sockfd, rcvg, sizeof(int), 0);
+			rcvg[received] = '\0';
+      /* New .Manifest will be the same as server's, so just get server's .Manifest */
+      if (rcvg[0] == 'x') {
+				fprintf(stderr, "ERROR: Server unable to send .Manifest for project \"%s\".\n", argv[2]);
+				free(rcvg);
+				free(to_send);
+				return EXIT_FAILURE;
+			}
+      int manifest_size = atoi(rcvg);
+			free(rcvg);
+      rcvg = (char*)malloc(manifest_size + 1);
+      received = recv(sockfd, rcvg, manifest_size, 0);
+			while (received < manifest_size) {
+				int bytes_received = recv(sockfd, rcvg + received, manifest_size, 0);
+				received += bytes_received;
+			}
+      /* Open local .Manifest */
+      char manifest_path[strlen(argv[2]) + 11];
+      snprintf(manifest_path, strlen(argv[2]) + 11, "%s/.Manifest", argv[2]);
+      int mani_fd = open(manifest_path, O_WRONLY | O_TRUNC);
+      if (mani_fd < 0) {
+				free(rcvg);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 1, 0);
+				free(to_send);
+				fprintf(stderr, "ERROR: Unable to open .Manifest for project \"%s\".\n", argv[2]);
+				close(mani_fd);
+			}
+      write(mani_fd, rcvg, manifest_size);
+			close(mani_fd);
+			snprintf(to_send, 2, "g");
+			sent = send(sockfd, to_send, 1, 0);
+			free(rcvg);
+			free(to_send);
+			printf("Upgrade successful!\n");
+    }
+    else if (strcmp(argv[1], "update") == 0) {
+      /* UPDATE */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = strlen(argv[2]) + 3;
+      char* to_send = (char*)malloc(send_size);
+      snprintf(to_send, send_size, "u:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+      char* rcvg = (char*)malloc(sizeof(int));
+      received = recv(sockfd, rcvg, sizeof(int), 0);
+      /* Just need server's .Manifest to complete */
+      if (rcvg[0] == 'x') {
+				fprintf(stderr, "ERROR: Failed to get server's .Manifest for project \"%s\" from server.\n", argv[2]);
+				free(to_send);
+				free(rcvg);
+				return EXIT_FAILURE;
+			} else if (rcvg[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				free(to_send);
+				free(rcvg);
+				return EXIT_FAILURE;
+			}
+      int serv_manifest_size = atoi(rcvg);
+      free(rcvg);
+
+      rcvg = (char*)malloc(serv_manifest_size + 1);
+      received = recv(sockfd, rcvg, serv_manifest_size, 0);
+      char serv_manifest_input[received + 1];
+      strcpy(serv_manifest_input, rcvg);
+			serv_manifest_input[received] = '\0';
+
+      /* Get version of server's .Manifest */
+      char server_temp[strlen(serv_manifest_input)];
+      snprintf(server_temp, strlen(serv_manifest_input), "%s", serv_manifest_input);
+			char* version_tok = strtok(server_temp, "\n");
+			int sv = atoi(version_tok);
+
+      /* Open local .Manifest */
+      char* client_manifest = (char*)malloc(strlen(argv[2]) + 11);
+      snprintf(client_manifest, strlen(argv[2]) + 11, "%s/.Manifest", argv[2]);
+      int mani_fd = open(client_manifest, O_RDWR);
+      int cm_size = get_file_size(mani_fd);
+      if (mani_fd < 0 || cm_size < 0) {
+				fprintf(stderr, "ERROR: Unable to open local .Manifest for project \"%s\".\n", argv[2]);
+				free(to_send);
+				free(rcvg);
+				return EXIT_FAILURE;
+			}
+      char client_manifest_input[cm_size];
+			int br = read(mani_fd, client_manifest_input, cm_size);
+			client_manifest_input[br] = '\0';
+
+      /* Get version of client's .Manifest */
+      char ct[br + 1];
+			strcpy(ct, client_manifest_input);
+			ct[br] = '\0';
+			version_tok = strtok(ct, "\n");
+			int cv = atoi(version_tok);
+			lseek(mani_fd, 0, 0);
+
+      /* Set up .Update */
+      char* update_path = (char*)malloc(strlen(argv[2]) + 9);
+      snprintf(update_path, strlen(argv[2]) + 9, "%s/.Update", argv[2]);
+      int update_fd = open(update_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
+      if (update_fd < 0) {
+				fprintf(stderr, "ERROR: Could not open or create .Update for project \"%s\".\n", argv[2]);
+				free(to_send);
+        free(rcvg);
+				free(update_path);
+				close(update_fd);
+				return EXIT_FAILURE;
+			}
+
+      int update_check = update(update_fd, client_manifest_input, serv_manifest_input, cv, sv);
+      if (update_check == -1) {
+				free(to_send);
+				remove(update_path);
+				close(update_fd);
+			} else if (update_check == 0) {
+				fprintf(stderr, "ERROR: Take care of all conflicts for project \"%s\" before attempting to update.\n", argv[2]);
+				free(to_send);
+				free(rcvg);
+				remove(update_path);
+				close(update_fd);
+			}
+      else {
+				if (get_file_size(update_fd) > 0) {
+					printf(".Update created successfully for project \"%s\"!\n", argv[2]);
+				} else {
+					printf("Already up to date!\n");
+				}
+				free(rcvg);
+				free(to_send);
+				close(update_fd);
+			}
+    }
+    // else if (strcmp(argv[1], "rollback") == 0) {
+    //   /* ROLLBACK */
+    //
+    // }
   }
   return 0;
 }
