@@ -832,7 +832,7 @@ void *thread_handler(void *args) {
 				int len = strlen(update_input);
 				int delete_check = 0;
 				char* p = NULL;
-				for (int i = 0; i < len; ++i) {
+				for (i = 0; i < len; ++i) {
 					if (update_input[i] != '\t' && update_input[i] != '\n') {
 						++tok_len;
 						continue;
@@ -877,7 +877,7 @@ void *thread_handler(void *args) {
 							snprintf(to_send, 2, "x");
 							sent = send(client_sock, to_send, 2, 0);
 							free(to_send);
-							free(rvcg);
+							free(rcvg);
 							close(fd);
 							close(mani_fd);
 							pthread_mutex_unlock(&context->lock);
@@ -910,7 +910,7 @@ void *thread_handler(void *args) {
 					}
 				}
 				else {
-					free(update_token);
+					free(update_tok);
 				}
 		}
 		free(to_send);
@@ -982,10 +982,11 @@ void *thread_handler(void *args) {
 		printf("Sent .Manifest for project \"%s\" to client.\n", token);
 		close(mani_fd);
 	}
-	// else if (token[0] == 'r') {
-	// 	/* ROLLBACK */
-	//
-	// }
+	else if (token[0] == 'r') {
+		/* ROLLBACK */
+	}
+
+	}
 	if (!keep_running) {
 		printf("Server closed.\n");
 	}
