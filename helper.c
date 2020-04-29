@@ -227,8 +227,8 @@ int commit_helper(int version, char* path, char* hash, char* other_manifest) {
 
 /* Parse through client's .Manifest and use commit_helper() to determine if there are any differences
  * between client's .Manifest and server's */
-int commit(int commit_fd, char* client_manifestfest, char* smfest) {
-	int len = strlen(client_manifestfest);
+int commit(int commit_fd, char* client_manifest, char* smfest) {
+	int len = strlen(client_manifest);
 
 	int i = 0, j = 0;
 	char* tok;
@@ -242,14 +242,14 @@ int commit(int commit_fd, char* client_manifestfest, char* smfest) {
 	int delete_check = 0;
 	for (i = 0; i < len; ++i) {
 		/* Tokenize by creating a new token whenever whitespace is encountered */
-		if (client_manifestfest[i] != '\t' && client_manifestfest[i] != '\n') {
+		if (client_manifest[i] != '\t' && client_manifest[i] != '\n') {
 			++tok_len;
 			continue;
 		}
 		else {
 			tok = (char*)malloc(tok_len + 1);
 			for (j = 0; j < tok_len; ++j) {
-				tok[j] = client_manifestfest[last_sep + j];
+				tok[j] = client_manifest[last_sep + j];
 			}
 			tok[tok_len] = '\0';
 			last_sep += tok_len + 1;
@@ -283,9 +283,9 @@ int commit(int commit_fd, char* client_manifestfest, char* smfest) {
 			buff[size] = '\0';
 			SHA256(buff, strlen(buff), hash);
 			/* Get file's hash too */
-			int i = 0;
-			for (i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-				sprintf(hashed + (i * 2), "%02x", hash[i]);
+			int k = 0;
+			for (k = 0; k < SHA256_DIGEST_LENGTH; ++k) {
+				sprintf(hashed + (k * 2), "%02x", hash[k]);
 			}
 			free(tok);
 			close(fd);
@@ -794,4 +794,53 @@ int update(int update_fd, char* client_manifest, char* sm, int cv, int sv) {
 		}
 	}
 	return res;
+}
+
+/* Look for matching version folder, and delete any version folder with greater version # */
+int rollback(char* p, int version) {
+	DIR *dir;
+	if (!(dir = opendir(p))) {
+		fprintf(stderr, "ERROR: Could not open \"%s\" on server.\n", p);
+		closedir(dir);
+		return -1;
+	}
+	struct dirent *de;
+	while ((de = readdir(dir)) != NULL) {
+		char temp[strlen(de->d_name) + 1];
+		strcpy(temp, de->d_name);
+		temp[strlen(de->d_name)] = '\0';
+		if (strstr(temp, "version") != NULL) {
+			/* Skip any non-directories */
+			if (de->d_type != DT_DIR) {
+				continue;
+			}
+			char version_path[strlen(p) + strlen(de->d_name) + 2];
+			if (p[strlen(p) - 1] != '/') {
+				snprintf(version_path, strlen(p) + strlen(de->d_name) + 2, "%s/%s", p, de->d_name);
+			} else {
+				snprintf(version_path, strlen(p) + strlen(de->d_name) + 2, "%s%s", p, de->d_name);
+			}
+			char manifest_path[strlen(version_path) + 12];
+			snprintf(manifest_path, strlen(version_path) + 12, "%s/.Manifest", version_path);
+			int fd_mani = open(manifest_path, O_RDONLY);
+			if (fd_mani < 0) {
+				fprintf(stderr, "ERROR: Not able to parse through versions.\n");
+				close(fd_mani);
+				closedir(dir);
+				return -1;
+			}
+			char manifest_input[256];
+			read(fd_mani, manifest_input, 255);
+			/* Get the version number for the current de */
+			char* version_tok = strtok(manifest_input, "\n");
+			int curr_version = atoi(version_tok);
+			/* If version number is greater, delete that directory */
+			if (curr_version > version) {
+				remove_directory(version_path);
+			}
+			close(fd_mani);
+		}
+	}
+	closedir(dir);
+	return 0;
 }

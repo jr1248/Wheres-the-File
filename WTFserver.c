@@ -984,8 +984,252 @@ void *thread_handler(void *args) {
 	}
 	else if (token[0] == 'r') {
 		/* ROLLBACK */
+		token = strtok(NULL, ":");
+		char proj[strlen(token) + 1];
+		strcpy(proj, token);
+		proj[strlen(token)] = '\0';
+		char proj_path[strlen(proj) + 22];
+		snprintf(proj_path, strlen(token) + 22, ".server_directory/%s", token);
+		char* to_send = (char*)malloc(2);
+		if (exists(proj_path) == -1) {
+			snprintf(to_send, 2, "b");
+			sent = send(client_sock, to_send, 2, 0);
+			fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", proj);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		char manifest_path[strlen(proj_path) + 11];
+		snprintf(manifest_path, strlen(proj_path) + 11, "%s/.Manifest", proj_path);
+		int fd_mani = open(manifest_path, O_RDONLY);
+		if (fd_mani < 0) {
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			fprintf(stderr, "ERROR: Cannot open .Manifest for project \"%s\".\n", proj);
+			free(to_send);
+			close(fd_mani);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		/* Get version of client */
+		token = strtok(NULL, ":");
+		int rv = atoi(token);
+		char vers[256];
+		read(fd_mani, vers, 256);
+		char* vers_tok = strtok(vers, "\n");
+		int sv = atoi(vers_tok);
+		/* Can only work if requested version is less than server's version */
+		if (rv >= sv) {
+			fprintf(stderr, "ERROR: Invalid version given for rollback request of project \"%s\".\n", proj);
+			snprintf(to_send, 2, "v");
+			sent = send(client_sock, to_send, 2, 0);
+			free(to_send);
+			close(fd_mani);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		int rb_check = rollback(proj_path, rv);
+		if (rb_check == -1) {
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			free(to_send);
+			close(fd_mani);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		char mp[strlen(proj_path) + 19 + sizeof(rv)];
+		snprintf(mp, strlen(proj_path) + 19 + sizeof(rv), "%s/version%d/.Manifest", proj_path, rv);
+		int fdm = open(mp, O_RDONLY);
+		int size = get_file_size(fdm);
+		if (fdm < 0 || size < 0) {
+			fprintf(stderr, "ERROR: Cannot get new input for .Manifest following rollback of project \"%s\".\n", proj);
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			free(to_send);
+			close(fd_mani);
+			close(fdm);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		char nmi[size + 1];
+		int br = read(fdm, nmi, size);
+		nmi[br] = '\0';
+		fd_mani = open(mp, O_TRUNC | O_WRONLY);
+		write(fd_mani, nmi, size);
+		close(fdm);
+		close(fd_mani);
+		snprintf(to_send, 2, "g");
+		sent = send(client_sock, to_send, 2, 0);
+		free(to_send);
+		/* Write to .History */
+		char history_path[strlen(proj_path) + 10];
+		snprintf(history_path, strlen(proj_path) + 10, "%s/.History", proj_path);
+		int hfd = open(history_path, O_WRONLY | O_APPEND);
+		char temp[sizeof(rv) + 1];
+		snprintf(temp, sizeof(rv), "%d", rv);
+		write(hfd, "rollback ", 9);
+		write(hfd, temp, strlen(temp));
+		write(hfd, "\n", 1);
+		write(hfd, temp, strlen(temp));
+		write(hfd, "\n", 1);
+		if (rv > 0) {
+			char cpath[strlen(proj_path) + 18 + sizeof(rv)];
+			snprintf(cpath, strlen(proj_path) + 18 + sizeof(rv), "%s/version%d/.Commit", proj_path, rv);
+			int fd_comm = open(cpath, O_RDONLY);
+			size = get_file_size(fdm);
+			char commit_input[size + 1];
+			br = read(fd_comm, commit_input, size);
+			commit_input[br] = '\0';
+			write(hfd, commit_input, strlen(commit_input));
+			write(hfd, "\n\n", 2);
+			close(fd_comm);
+		}
+		close(hfd);
+		/* Success */
+		printf("Rollback successful!\n");
 	}
+	else if (token[0] == 'h') {
+		token = strtok(NULL, ":");
+		char proj[strlen(token) + 1];
+		strcpy(proj, token);
+		proj[strlen(token)] = '\0';
+		char* proj_path = (char*)malloc(strlen(token) + 22);
+		snprintf(proj_path, strlen(token) + 22, ".server_directory/%s", token);
+		char* to_send = (char*)malloc(2);
+		if (exists(proj_path) == -1) {
+			fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", proj);
+			snprintf(to_send, 2, "b");
+			sent = send(client_sock, to_send, 2, 0);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		char history_path[strlen(proj_path) + 10];
+		snprintf(history_path, strlen(proj_path) + 10, "%s/.History", proj_path);
+		int hfd = open(history_path, O_RDONLY);
+		int h_size = get_file_size(hfd);
+		if (h_size < 0 || hfd < 0)  {
+			fprintf(stderr, "ERROR: Cannot open .History for project \"%s\".\n", proj);
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		snprintf(to_send, 2, "g");
+		sent = send(client_sock, to_send, 1, 0);
+		free(to_send);
+		int send_size = sizeof(h_size);
+		to_send = (char*)malloc(send_size + 1);
+		snprintf(to_send, send_size, "%d", h_size);
+		to_send[send_size] = '\0';
+		sent = send(client_sock, to_send, send_size, 0);
+		free(to_send);
+		send_size = h_size;
+		to_send = (char*)malloc(send_size + 1);
+		int b_read = read(hfd, to_send, send_size);
+		to_send[b_read] = '\0';
+		sent = send(client_sock, to_send, send_size, 0);
+		while (sent < send_size) {
+			int b_sent = send(client_sock, to_send + sent, send_size, 0);
+			sent += b_sent;
+		}
+		close(hfd);
+		printf("Sent history of project \"%s\" to client!\n", proj);
+	}
+	else if (token[0] == 'k') {
+		token = strtok(NULL, ":");
+		char proj[strlen(token) + 1];
+		strcpy(proj, token);
+		proj[strlen(token)] = '\0';
+		char* proj_path = (char*)malloc(strlen(token) + 22);
+		snprintf(proj_path, strlen(token) + 22, ".server_directory/%s", token);
+		char* to_send = (char*)malloc(2);
+		if (exists(proj_path) == -1) {
+			fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", proj);
+			snprintf(to_send, 2, "b");
+			sent = send(client_sock, to_send, 2, 0);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		/* Open .Manifest to get version number and its input */
+		char manifest_path[strlen(proj_path) + 11];
+		snprintf(manifest_path, strlen(proj_path) + 11, "%s/.Manifest", proj_path);
+		int mfd = open(manifest_path, O_RDONLY);
+		int manifest_size = get_file_size(mfd);
+		if (mfd < 0 || manifest_size < 0) {
+			snprintf(to_send, 2, "x");
+			sent = send(client_sock, to_send, 2, 0);
+			fprintf(stderr, "ERROR: Cannot open .Manifest for project \"%s\".\n", proj);
+			free(to_send);
+			close(mfd);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		snprintf(to_send, 2, "g");
+		sent = send(client_sock, to_send, 2, 0);
+		char manifest_input[manifest_size + 1];
+		read(mfd, manifest_input, manifest_size);
+		manifest_input[manifest_size] = '\0';
 
+		char version[manifest_size];
+		lseek(mfd, 0, 0);
+		read(mfd, version, 256);
+		char* version_tok = strtok(version, "\n");
+		int v = atoi(version_tok);
+		char vp[strlen(proj_path) + 7 + sizeof(v)];
+		snprintf(vp, strlen(proj_path) + 7 + sizeof(v), "%s/version%d", proj_path, v);
+		char* rcvg = (char*)malloc(sizeof(int) + 1);
+		received = recv(client_sock, rcvg, sizeof(int), 0);
+		int path_size = atoi(rcvg);
+		free(rcvg);
+		rcvg = (char*)malloc(path_size + 1);
+		received = recv(client_sock, rcvg, path_size, 0);
+		while (received < path_size) {
+			int br = recv(client_sock, rcvg + received, path_size, 0);
+			received += br;
+		}
+		rcvg[received] = '\0';
+		int c_check = dir_copy(vp, rcvg, 1);
+		if (c_check != 0) {
+			free(to_send);
+			to_send = (char*)malloc(2);
+			snprintf(to_send, 2, "x");
+			close(mfd);
+			free(rcvg);
+			fprintf(stderr, "ERROR: Could not copy over project \"%s\" to client.\n", token);
+			pthread_mutex_unlock(&context->lock);
+			pthread_exit(NULL);
+		}
+		free(to_send);
+		/* Sending .Manifest */
+		int send_size = sizeof(int);
+		to_send = (char*)malloc(send_size);
+		snprintf(to_send, send_size, "%d", manifest_size);
+		sent = send(client_sock, to_send, send_size, 0);
+		free(to_send);
+		to_send = (char*)malloc(manifest_size + 1);
+		strcpy(to_send, manifest_input);
+		to_send[manifest_size] = '\0';
+		sent = send(client_sock, to_send, manifest_size, 0);
+		printf("sent: %s\n", to_send);
+		while (sent < manifest_size) {
+			int b_sent = send(client_sock, to_send + sent, manifest_size, 0);
+			sent += b_sent;
+		}
+		close(mfd);
+		free(rcvg);
+		rcvg = (char*)malloc(2);
+		received = recv(client_sock, rcvg, 2, 0);
+		if (rcvg[0] == 'g') {
+			printf("Sent project \"%s\" successfully to client!\n", token);
+		} else {
+			fprintf(stderr, "ERROR: Client could not set up local .Manifest for project \"%s\".", token);
+		}
+		free(rcvg);
+		free(to_send);
+	}
+	else if (token[0] == 'x') {
+		fprintf(stderr, "ERROR: Mishap on client's end.\n");
+	}
+	pthread_mutex_unlock(&context->lock);
 	}
 	if (!keep_running) {
 		printf("Server closed.\n");

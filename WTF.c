@@ -1087,10 +1087,184 @@ int main(int argc, char const *argv[]){
 				close(update_fd);
 			}
     }
-    // else if (strcmp(argv[1], "rollback") == 0) {
-    //   /* ROLLBACK */
-    //
-    // }
+    else if (strcmp(argv[1], "rollback") == 0) {
+      /* ROLLBACK */
+      if (argc < 4) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name and desired version number.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 4) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name and desired version number.\n");
+				return EXIT_FAILURE;
+			}
+      /* Send rollback code, project name, and version all in 1 go */
+      int send_size = strlen(argv[2]) + strlen(argv[3]) + 4;
+      char* to_send = (char*)malloc(send_size);
+      snprintf(to_send, send_size, "r:%s:%s", argv[2], argv[3]);
+      sent = send(sockfd, to_send, send_size, 0);
+      char* rcvg = (char*)malloc(2);
+      received = recv(sockfd, rcvg, 2, 0);
+      if (rcvg[0] == 'b') {
+				fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+			}
+      else if (rcvg[0] == 'x') {
+				fprintf(stderr, "ERROR: Something went wrong on server during rollback of project \"%s\".\n", argv[2]);
+			}
+      else if (rcvg[0] == 'v') {
+				fprintf(stderr, "ERROR: Invalid version number inputted. The version number must be less than the current version of project \"%s\" on the server.\n", argv[2]);
+			}
+      else if (rcvg[0] == 'g') {
+				printf("Rollback successful!\n");
+			}
+    }
+    else if (strcmp(argv[1], "history") == 0) {
+      /* HISTORY */
+			if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = 3 + strlen(argv[2]);
+      char* to_send = (char*)malloc(send_size);
+      snprintf(to_send, send_size, "h:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+      char* rcvg = (char*)malloc(2);
+      received = recv(sockfd, rcvg, 1, 0);
+      if (rcvg[0] == 'b' || rcvg[0] == 'x') {
+        if (rcvg[0] == 'b') {
+					fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				}
+        else {
+          fprintf(stderr, "ERROR: Server could not send history of project \"%s\".\n", argv[2]);
+        }
+        free(to_send);
+				free(rcvg);
+				return EXIT_FAILURE;
+      }
+      /* Get .History file from server */
+      free(rcvg);
+      rcvg = (char*)malloc(sizeof(int) + 1);
+      received = recv(sockfd, rcvg, sizeof(int), 0);
+      rcvg[received] = '\0';
+      int size = atoi(rcvg);
+			free(rcvg);
+      rcvg = (char*)malloc(size + 1);
+      received = recv(sockfd, rcvg, size, 0);
+      while (received < size) {
+				int bytes_read = recv(sockfd, rcvg + received, size, 0);
+				received += bytes_read;
+			}
+			rcvg[received] = '\0';
+      /* Print history */
+      printf("%s", rcvg);
+			free(rcvg);
+			free(to_send);
+    }
+    else if (strcmp(argv[1], "checkout") == 0) {
+      /* ChECKOUT */
+      if (argc < 3) {
+				fprintf(stderr, "ERROR: Not enough arguments. Please input the project name.\n");
+				return EXIT_FAILURE;
+			}
+			if (argc > 3) {
+				fprintf(stderr, "ERROR: Too many arguments. Please input only the project name.\n");
+				return EXIT_FAILURE;
+			}
+      int send_size = 3 + strlen(argv[2]);
+      char* to_send = (char*)malloc(send_size);
+      if (exists(argv[2]) != -1) {
+				fprintf(stderr, "ERROR: Project \"%s\" already exists on client side.\n", argv[2]);
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+				free(to_send);
+				return EXIT_FAILURE;
+			}
+      snprintf(to_send, send_size, "k:%s", argv[2]);
+      sent = send(sockfd, to_send, send_size, 0);
+      char* rcvg = (char*)malloc(2);
+      received = recv(sockfd, rcvg, 2, 0);
+      if (rcvg[0] == 'b' || rcvg[0] == 'x') {
+        if (rcvg[0] == 'b') {
+					fprintf(stderr, "ERROR: Project \"%s\" does not exist on server.\n", argv[2]);
+				} else {
+					fprintf(stderr, "ERROR: Server could not send history of project \"%s\".\n", argv[2]);
+				}
+				free(to_send);
+				free(rcvg);
+				return EXIT_FAILURE;
+      }
+      mkdir(argv[2], 0777);
+      char abs_path[PATH_MAX + 1];
+      char* p = realpath(argv[2], abs_path);
+      int len = strlen(abs_path);
+      free(to_send);
+      to_send = (char*)malloc(sizeof(int));
+      snprintf(to_send, sizeof(int), "%d", len);
+      sent = send(sockfd, to_send, sizeof(int), 0);
+      free(to_send);
+			to_send = (char*)malloc(len + 1);
+      strcpy(to_send, abs_path);
+      to_send[len] = '\0';
+      sent = send(sockfd, to_send, len, 0);
+      while (sent < len) {
+				int bytes_sent = send(sockfd, to_send + sent, len, 0);
+				sent += bytes_sent;
+			}
+      /* Getting server's .Manifest */
+      free(rcvg);
+      rcvg = (char*)malloc(sizeof(int));
+      received = recv(sockfd, rcvg, sizeof(int), 0);
+      printf("received %d: %s\n", received, rcvg);
+      if (rcvg[0] == 'x') {
+				remove_directory(abs_path);
+				free(to_send);
+				free(rcvg);
+				fprintf(stderr, "ERROR: Could not receive server's copy of project \"%s\".\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      /* Retrieving .Manifest */
+      int manifest_size = atoi(rcvg);
+      printf("manifest_size: %d\n", manifest_size);
+      free(rcvg);
+      rcvg = (char *) malloc(manifest_size + 1);
+      received = recv(sockfd, rcvg, manifest_size, 0);
+      while (received < manifest_size) {
+				int br = recv(sockfd, rcvg + received, manifest_size, 0);
+				received += br;
+			}
+      rcvg[received] = '\0';
+      printf("yo: %s\n", rcvg);
+      char manifest_path[strlen(argv[2])+ 11];
+      snprintf(manifest_path, strlen(argv[2]) + 11, "%s/.Manifest", argv[2]);
+      free(to_send);
+			to_send = (char*)malloc(2);
+      int mfd = open(manifest_path, O_CREAT | O_WRONLY, 0777);
+      if (mfd < 0) {
+				snprintf(to_send, 2, "x");
+				sent = send(sockfd, to_send, 2, 0);
+				free(to_send);
+				free(rcvg);
+				close(mfd);
+				fprintf(stderr, "ERROR: Could not create local .Manifest for project \"%s\".\n", argv[2]);
+				return EXIT_FAILURE;
+			}
+      write(mfd, rcvg, manifest_size);
+			close(mfd);
+      snprintf(to_send, 2, "g");
+      sent = send(sockfd, to_send, 2, 0);
+      free(to_send);
+			free(rcvg);
+      printf("Got project \"%s\" from server!\n", argv[2]);
+    }
+    else {
+      /* If argv[1] didn't match any of the commands, send error code to server */
+			char to_send[2] = "x";
+			sent = send(sockfd, to_send, 2, 0);
+    }
+    close(sockfd);
   }
   return 0;
 }
