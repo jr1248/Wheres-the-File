@@ -22,9 +22,6 @@ void error(char *msg){
 }
 
 int main(int argc, char const *argv[]){
-  // char IP[30];
-  // char port[6];
-
   if (argc < 2) {
     error("ERROR: Not enough arguments");
   }
