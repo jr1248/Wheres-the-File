@@ -1,6 +1,6 @@
 all: WTF.c helper.o WTFserver.c
-				gcc -fsanitize=address -o WTF WTF.c helper.o -lssl -lcrypto -lm
-				gcc -fsanitize=address -o WTFserver WTFserver.c helper.o -lpthread -DMUTEX -lm -lssl -lcrypto
+				gcc -g -o WTF WTF.c helper.o -lssl -lcrypto -lm
+				gcc -g -o WTFserver WTFserver.c helper.o -lpthread -DMUTEX -lm -lssl -lcrypto
 
 helper.o: helper.c
 				gcc -c helper.c -lm -lssl -lcrypto
