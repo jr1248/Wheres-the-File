@@ -1,0 +1,70 @@
+Sunehar Sandhu and Jennifer Rodriguez
+
+Test Cases:
+__________________________________________________
+
+Server Input for all: ./WTFserver 9123
+INPUT: ./WTF configure cpp.cs.rutgers.edu 763
+
+CLIENT OUTPUT: Successful configuration.
+__________________________________________________
+
+INPUT: ./WTF create proj
+
+CLIENT OUTPUT: 	Project "proj" initialized successfully!
+
+SERVER OUTPUT: Creation of project "proj" successful.
+________________________________________________________
+
+INPUT: ./WTF add proj ./test.txt
+
+CLIENT OUTPUT: Addition of "proj/ ./test.txt" successful.
+________________________________________________________
+
+INPUT: ./WTF add proj ./cs.txt
+
+CLIENT OUTPUT: Addition of "proj/ ./cs.txt" successful.
+___________________________________________________________
+
+INPUT: ./WTF remove proj ./cs.txt
+
+CLIENT OUTPUT: Project proj removed on server successfully!
+______________________________________________________________
+
+INPUT: ./WTF commit proj
+
+CLIENT OUTPUT: Commit successful!
+
+SERVER OUTPUT: Commit successful.
+_________________________________________________________________
+
+INPUT: ./WTF push proj
+
+CLIENT OUTPUT: Push successful!
+
+SERVER OUTPUT: Push successful.
+_________________________________________________________________
+
+INPUT: ./WTF destroy proj
+
+CLIENT OUTPUT:	 Project "args" deleted on server successfully!
+
+SERVER OUTPUT: 	Project "args" deleted from server.
+_________________________________________________________________
+
+INPUT: ./WTF currentversion proj
+
+CLIENT OUTPUT:	proj (Version 2)
+
+		Version #0	proj/test.txt
+		Version #0	proj/rutgers.txts
+
+SERVER OUTPUT: 	Sent .Manifest file for "proj" project to client.
+_____________________________________________________________________
+
+INPUT: ./WTF checkout proj
+
+CLIENT OUTPUT: ERROR: Project "proj" already exists on client side.
+
+SERVER OUTPUT: Mishap on client's end.
+_______________________________________________________________________

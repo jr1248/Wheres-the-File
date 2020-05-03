@@ -1,0 +1,27 @@
+Sunehar Sandhu and Jennifer Rodriguez
+
+Test Plan:
+
+1) Run configure: creates a .configure file that has the IP address and port number. This is the first command that will be run and if another command is run first and error message will be displayed.
+
+2) Run create: creates a project in the server repository and a .Manifest file as a project folder. This command will also send back a copy to the client
+
+3) Run add: This adds an entry within a project's .Manifest file
+
+4) Run remove: removes an entry from a .Manifest file
+
+5) Run commit: will make a .commit file if there are discrepancies between the client and server .Manifest
+
+6) Run push: this command lets the client send a .commit and an all files list in the commit to the server
+
+7) Run upgrade: when the client makes changes in the .update file the .update should be deleted
+
+8) Run history: sends over a file that contains all the changes/pushes made to the project folder
+
+9) Run add/remove to alter client side and then update: will create a .update file  on the client side and the client will output to STDOUT the differences
+
+10) Run current version: the client will output all files that the server has under the project along with their version numbers
+
+11) Run rollback: the server will go back to the version dictated by the client and will delete tall the more recent versions that are saved within the server
+
+12) Run destroy:  server will deleted all files within the project directory along with the project directory itself
