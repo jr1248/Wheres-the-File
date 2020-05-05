@@ -39,7 +39,7 @@ int main(int argc, char** agrv) {
     sleep(5);
     execlp("./WTF", "add", "testFile", "testFile/rutgers.txt");
     sleep(5);
-    execlp("./WTF", "commit", "testFile");
+    execlp("./WTF", "commit", "testFile////////");
     sleep(5);
     execlp("./WTF", "push", "testFile");
     sleep(5);
