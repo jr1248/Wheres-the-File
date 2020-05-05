@@ -31,7 +31,7 @@ INPUT: ./WTF remove proj ./cs.txt
 CLIENT OUTPUT: Project proj removed on server successfully!
 ______________________________________________________________
 
-INPUT: ./WTF commit proj
+INPUT: ./WTF commit proj//// (Commit needs to be inputed with slashes totalting the number of letters after the word)
 
 CLIENT OUTPUT: Commit successful!
 
